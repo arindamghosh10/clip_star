@@ -17,7 +17,13 @@ def _clip(client, status=ClipStatus.approved):
         v = Video(workspace_id=ws.id, title="Ep", source_filename="ep.mp4")
         s.add(v)
         s.flush()
-        c = Clip(video_id=v.id, title="Rent trap", start_s=10, end_s=50, score=90, status=status, copy={"instagram": "IG caption"})
+        from clipstar.storage import get_storage
+
+        st = get_storage()
+        st.abs(f"videos/{v.id}/clips").mkdir(parents=True, exist_ok=True)
+        st.abs(f"videos/{v.id}/clips/a.mp4").write_bytes(b"fake")
+        c = Clip(video_id=v.id, title="Rent trap", start_s=10, end_s=50, score=90, status=status, copy={"instagram": "IG caption"},
+                 variants=[{"id": "A", "caption_style": "bold-pop", "hook": "X"}], meta={"renders": {"A": {"path": f"videos/{v.id}/clips/a.mp4", "key": "k"}}})
         s.add(c)
         s.flush()
         return str(c.id)
@@ -44,6 +50,8 @@ def test_batch_lifecycle_and_post_filters(client):
     clip = _clip(client)
     a1, a2 = _acc(client, "@a"), _acc(client, "@b", platform="tiktok")
     body = {"name": "Ep batch", "clip_ids": [clip], "account_ids": [a1["id"], a2["id"]], "start_at": datetime(2030, 1, 1, 18, tzinfo=timezone.utc).isoformat(), "spacing_minutes": 45}
+    pv = client.post("/api/batches/preview", json=body).json()
+    assert len(pv["posts"]) == 2 and pv["skipped"] == []
     b = client.post("/api/batches", json=body).json()
     assert b["status"] == "awaiting" and b["posts"] == 2 and b["accounts"] == 2
 

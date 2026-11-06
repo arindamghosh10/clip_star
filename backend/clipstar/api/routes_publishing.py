@@ -1,4 +1,5 @@
 import uuid
+from typing import Literal
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -8,9 +9,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_session
+from ..errors import PermanentError
+from ..publishing import service as svc
 from ..pipeline.package import compose
 from ..models import (
     Account,
+    AccountStatus,
     Batch,
     BatchStatus,
     Clip,
@@ -63,7 +67,17 @@ def create_account(body: AccountIn, s: Session = Depends(get_session), ws: Works
 @router.patch("/accounts/{account_id}", response_model=AccountOut)
 def update_account(account_id: uuid.UUID, body: AccountPatch, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
     a = _account(s, ws, account_id)
-    for k, v in body.model_dump(exclude_unset=True).items():
+    data = body.model_dump(exclude_unset=True)
+    if "options" in data:
+        opts = {k: v for k, v in (data.pop("options") or {}).items() if v is not None}
+        if "simulate" in opts and a.connection != "simulated":
+            raise HTTPException(422, "Failure simulation is only for practice accounts.")
+        if "board_id" in opts and a.platform == Platform.pinterest and opts["board_id"] not in [b["id"] for b in (a.options or {}).get("boards", [])]:
+            raise HTTPException(422, "That board isn't on this Pinterest account.")
+        a.options = {**(a.options or {}), **opts}
+    if data.get("status") == AccountStatus.connected and a.connection == "oauth" and not a.token_enc:
+        raise HTTPException(409, "Reconnect this account through its platform login first.")
+    for k, v in data.items():
         setattr(a, k, v)
     s.commit()
     return a
@@ -84,11 +98,53 @@ def delete_account(account_id: uuid.UUID, s: Session = Depends(get_session), ws:
 
 class BatchIn(BaseModel):
     name: str = Field(min_length=1, max_length=300)
-    clip_ids: list[uuid.UUID] = Field(min_length=1)
-    account_ids: list[uuid.UUID] = Field(min_length=1)
+    clip_ids: list[uuid.UUID] = Field(min_length=1, max_length=200)
+    account_ids: list[uuid.UUID] = Field(default_factory=list, max_length=500)
+    groups: list[str] = Field(default_factory=list, max_length=50)
     start_at: datetime
-    spacing_minutes: int = Field(default=45, ge=0, le=24 * 60)
-    variations: str = Field(default="off", max_length=64)
+    spacing_minutes: int | None = Field(default=None, ge=0, le=24 * 60)
+    variations: Literal["off", "ab"] = "off"
+
+
+def _batch_inputs(s: Session, ws: Workspace, body: BatchIn) -> tuple[list[Clip], list[Account]]:
+    if body.start_at.tzinfo is None:
+        raise HTTPException(422, "start_at must include a time zone, e.g. 2026-11-07T18:00:00Z.")
+    clips = list(s.scalars(select(Clip).join(Video).where(Clip.id.in_(body.clip_ids), Video.workspace_id == ws.id).order_by(Clip.score.desc())))
+    if len(clips) != len(set(body.clip_ids)):
+        raise HTTPException(422, "Some clips don't exist.")
+    if any(c.status != ClipStatus.approved for c in clips):
+        raise HTTPException(422, "Only approved clips can go into a batch.")
+    q = select(Account).where(Account.workspace_id == ws.id)
+    if body.account_ids and body.groups:
+        q = q.where((Account.id.in_(body.account_ids)) | (Account.group_name.in_(body.groups)))
+    elif body.account_ids:
+        q = q.where(Account.id.in_(body.account_ids))
+    elif body.groups:
+        q = q.where(Account.group_name.in_(body.groups))
+    else:
+        raise HTTPException(422, "Pick at least one account or group.")
+    accounts = list(s.scalars(q))
+    if body.account_ids and len({a.id for a in accounts if a.id in set(body.account_ids)}) != len(set(body.account_ids)):
+        raise HTTPException(422, "Some accounts don't exist.")
+    if not accounts:
+        raise HTTPException(422, "No accounts match.")
+    return clips, accounts
+
+
+@router.post("/batches/preview")
+def preview_batch(body: BatchIn, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    clips, accounts = _batch_inputs(s, ws, body)
+    p = svc.build_plan(s, ws, clips, accounts, body.start_at, body.spacing_minutes, body.variations)
+    acc = {str(a.id): a for a in accounts}
+    cl = {str(c.id): c for c in clips}
+    return {
+        "posts": [
+            {"account_id": x.account_id, "handle": acc[x.account_id].handle, "platform": acc[x.account_id].platform.value, "timezone": acc[x.account_id].timezone, "clip_id": x.clip_id, "clip": cl[x.clip_id].title, "variant": x.variant, "at": x.at.isoformat()}
+            for x in p.slots
+        ],
+        "warnings": p.warnings,
+        "skipped": [x["reason"] for x in p.skipped],
+    }
 
 
 def _batch_out(s: Session, b: Batch) -> BatchOut:
@@ -103,6 +159,8 @@ def _batch_out(s: Session, b: Batch) -> BatchOut:
     return BatchOut(
         id=b.id,
         name=b.name,
+        origin=b.origin,
+        warnings=b.warnings or [],
         status=b.status,
         variations=b.variations,
         approved_at=b.approved_at,
@@ -128,28 +186,11 @@ def list_batches(s: Session = Depends(get_session), ws: Workspace = Depends(get_
 
 @router.post("/batches", response_model=BatchOut, status_code=201)
 def create_batch(body: BatchIn, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
-    if body.start_at.tzinfo is None:
-        raise HTTPException(422, "start_at must include a time zone, e.g. 2026-11-07T18:00:00Z.")
-    clips = list(s.scalars(select(Clip).join(Video).where(Clip.id.in_(body.clip_ids), Video.workspace_id == ws.id)))
-    if len(clips) != len(set(body.clip_ids)):
-        raise HTTPException(422, "Some clips don't exist.")
-    if any(c.status != ClipStatus.approved for c in clips):
-        raise HTTPException(422, "Only approved clips can go into a batch.")
-    accounts = list(s.scalars(select(Account).where(Account.id.in_(body.account_ids), Account.workspace_id == ws.id)))
-    if len(accounts) != len(set(body.account_ids)):
-        raise HTTPException(422, "Some accounts don't exist.")
-    b = Batch(workspace_id=ws.id, name=body.name, variations=body.variations)
-    s.add(b)
-    s.flush()
-    # Simple schedule: clips one after another, accounts spaced apart. The full scheduler
-    # (daily caps, posting hours, time zones) replaces this in the Publish phase.
-    t = body.start_at.astimezone(timezone.utc)
-    for clip in clips:
-        for acc in accounts:
-            c = (clip.copy or {}).get(acc.platform.value)
-            caption = compose(c, acc.platform.value) if isinstance(c, dict) else (c if isinstance(c, str) else clip.title)
-            s.add(Post(batch_id=b.id, account_id=acc.id, clip_id=clip.id, caption=caption, scheduled_at=t, status=PostStatus.held))
-            t += timedelta(minutes=body.spacing_minutes)
+    clips, accounts = _batch_inputs(s, ws, body)
+    try:
+        b, _ = svc.create_batch(s, ws, body.name, clips, accounts, body.start_at, body.spacing_minutes, body.variations)
+    except PermanentError as e:
+        raise HTTPException(422, e.user_message) from e
     s.commit()
     return _batch_out(s, b)
 
@@ -179,6 +220,10 @@ def batch_action(batch_id: uuid.UUID, action: str, s: Session = Depends(get_sess
     b.status = new
     if action == "approve":
         b.approved_at = datetime.now(timezone.utc)
+        # approved later than planned: shift the whole plan so spacing and order are kept
+        first = s.scalar(select(func.min(Post.scheduled_at)).where(Post.batch_id == b.id, Post.status == PostStatus.held))
+        if first and first < b.approved_at - timedelta(minutes=5):
+            s.execute(update(Post).where(Post.batch_id == b.id, Post.status == PostStatus.held).values(scheduled_at=Post.scheduled_at + (b.approved_at - first)))
     # Posts already publishing are not touched; the publisher re-checks the batch right before posting.
     s.execute(update(Post).where(Post.batch_id == b.id, Post.status == from_post).values(status=to_post))
     s.commit()
@@ -215,6 +260,55 @@ def list_posts(
     if status:
         q = q.where(Post.status == status)
     return list(s.scalars(q.order_by(Post.scheduled_at.desc()).limit(limit).offset(offset)))
+
+
+def _post(s: Session, ws: Workspace, post_id: uuid.UUID) -> Post:
+    p = s.scalar(select(Post).join(Account, Account.id == Post.account_id).where(Post.id == post_id, Account.workspace_id == ws.id).with_for_update(of=Post))
+    if p is None:
+        raise HTTPException(404, "Post not found.")
+    return p
+
+
+@router.post("/posts/{post_id}/retry", response_model=PostOut)
+def retry_post(post_id: uuid.UUID, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """Send again. For an uncertain post, only do this after checking the platform: it may already be there."""
+    p = _post(s, ws, post_id)
+    if p.status not in (PostStatus.failed, PostStatus.unknown):
+        raise HTTPException(409, "Only failed or unconfirmed posts can be retried.")
+    b = s.get(Batch, p.batch_id, with_for_update=True)
+    p.status = PostStatus.scheduled if b.status in (BatchStatus.running, BatchStatus.finished) else PostStatus.held
+    if b.status == BatchStatus.finished:
+        b.status = BatchStatus.running
+    p.scheduled_at = datetime.now(timezone.utc)
+    p.last_error = None
+    p.verify_attempts = 0
+    s.commit()
+    return p
+
+
+@router.post("/posts/{post_id}/cancel", response_model=PostOut)
+def cancel_post(post_id: uuid.UUID, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    p = _post(s, ws, post_id)
+    if p.status not in (PostStatus.held, PostStatus.scheduled, PostStatus.failed, PostStatus.unknown):
+        raise HTTPException(409, "This post is already out or being published.")
+    p.status = PostStatus.cancelled
+    svc.finish_batch_if_done(s, p.batch_id)
+    s.commit()
+    return p
+
+
+@router.post("/posts/{post_id}/mark-published", response_model=PostOut)
+def mark_published(post_id: uuid.UUID, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """For an unconfirmed post you found on the platform."""
+    p = _post(s, ws, post_id)
+    if p.status not in (PostStatus.unknown, PostStatus.failed):
+        raise HTTPException(409, "Only unconfirmed or failed posts can be marked as published.")
+    p.status = PostStatus.published
+    p.published_at = datetime.now(timezone.utc)
+    p.last_error = "Marked as published by you."
+    svc.finish_batch_if_done(s, p.batch_id)
+    s.commit()
+    return p
 
 
 # ---------- rules ----------

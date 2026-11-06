@@ -7,12 +7,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from ..config import get_settings
-from . import routes_jobs, routes_misc, routes_publishing, routes_videos
+from . import routes_connect, routes_jobs, routes_misc, routes_publishing, routes_videos
 from .deps import require_token
 
 log = logging.getLogger("clipstar.api")
 
-app = FastAPI(title="clip_star API", version="0.1.0", dependencies=[Depends(require_token)])
+app = FastAPI(title="clip_star API", version="0.1.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
@@ -20,8 +20,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Every route needs the API token (when one is set) except OAuth callbacks and signed media links.
 for r in (routes_videos, routes_jobs, routes_publishing, routes_misc):
-    app.include_router(r.router)
+    app.include_router(r.router, dependencies=[Depends(require_token)])
+app.include_router(routes_connect.router)
+app.include_router(routes_connect.public)
 
 
 @app.exception_handler(Exception)

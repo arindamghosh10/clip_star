@@ -1,0 +1,178 @@
+"""Instagram Reels, Facebook Page Reels and Threads (Meta).
+
+Instagram and Facebook use Facebook Login and the Graph API; one login can give access to
+several Pages and their linked Instagram professional accounts, each becoming an account here.
+Threads uses its own login and API, and needs the video at a public URL.
+"""
+
+from __future__ import annotations
+
+from ..config import get_settings
+from ..errors import PermanentError
+from .base import App, Identity, Provider, PublishRequest, PublishResult, Tokens
+from .http import call, json_of
+from .util import text_matches, url, wait_until
+
+
+def graph() -> str:
+    return f"https://graph.facebook.com/{get_settings().meta_graph_version}"
+
+
+def rupload(kind: str) -> str:
+    return f"https://rupload.facebook.com/{kind}/{get_settings().meta_graph_version}"
+
+
+class _FacebookLogin(Provider):
+    client_id_label = "App ID"
+
+    def auth_url(self, app, state, redirect_uri, code_challenge):
+        return url(f"https://www.facebook.com/{get_settings().meta_graph_version}/dialog/oauth", client_id=app.client_id, redirect_uri=redirect_uri, state=state, scope=",".join(self.scopes), response_type="code")
+
+    def exchange(self, app, code, redirect_uri, verifier):
+        r = call("GET", url(f"{graph()}/oauth/access_token", client_id=app.client_id, client_secret=app.client_secret, redirect_uri=redirect_uri, code=code), label=self.label)
+        short = json_of(r, self.label)["access_token"]
+        # swap for a long-lived user token (about 60 days); Page tokens derived from it don't expire
+        r = call("GET", url(f"{graph()}/oauth/access_token", grant_type="fb_exchange_token", client_id=app.client_id, client_secret=app.client_secret, fb_exchange_token=short), label=self.label)
+        return Tokens.from_oauth(json_of(r, self.label))
+
+    def _pages(self, tokens: Tokens) -> list[dict]:
+        r = call("GET", url(f"{graph()}/me/accounts", fields="id,name,access_token,instagram_business_account{id,username}", limit="100", access_token=tokens.access_token), label=self.label)
+        return json_of(r, self.label).get("data", [])
+
+
+class Instagram(_FacebookLogin):
+    platform = "instagram"
+    label = "Instagram"
+    scopes = ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement", "business_management"]
+    docs_url = "https://developers.facebook.com/docs/instagram-platform/content-publishing"
+
+    def identities(self, app, tokens):
+        out = []
+        for p in self._pages(tokens):
+            ig = p.get("instagram_business_account")
+            if ig and p.get("access_token"):
+                out.append(Identity(remote_id=ig["id"], handle=f"@{ig.get('username') or ig['id']}", tokens=Tokens(p["access_token"]), options={"page_id": p["id"]}))
+        if not out:
+            raise PermanentError("no ig", user_message="No Instagram professional account is linked to the Facebook Pages you shared. Link one in Instagram settings, then connect again.")
+        return out
+
+    def publish(self, app, tokens, remote_id, req):
+        tok = tokens.access_token
+        r = call("POST", f"{graph()}/{remote_id}/media", label=self.label, data={"media_type": "REELS", "upload_type": "resumable", "caption": req.caption[:2200], "share_to_feed": "true", "access_token": tok})
+        container = json_of(r, self.label)["id"]
+        size = req.video.stat().st_size
+        call("POST", f"{rupload('ig-api-upload')}/{container}", label=self.label, headers={"Authorization": f"OAuth {tok}", "offset": "0", "file_size": str(size)}, content=req.video.read_bytes())
+
+        def ready():
+            d = json_of(call("GET", url(f"{graph()}/{container}", fields="status_code,status", access_token=tok), label=self.label), self.label)
+            code = d.get("status_code")
+            if code == "FINISHED":
+                return "ok"
+            if code in ("ERROR", "EXPIRED"):
+                raise PermanentError(str(d), user_message=f"Instagram couldn't process the video: {d.get('status') or code}")
+            return None
+
+        wait_until(ready, label=self.label)
+        r = call("POST", f"{graph()}/{remote_id}/media_publish", label=self.label, commit=True, data={"creation_id": container, "access_token": tok})
+        mid = json_of(r, self.label)["id"]
+        link = None
+        try:
+            link = json_of(call("GET", url(f"{graph()}/{mid}", fields="permalink", access_token=tok), label=self.label), self.label).get("permalink")
+        except Exception:
+            pass  # the post exists; a missing link isn't worth failing over
+        return PublishResult(mid, link)
+
+    def find(self, app, tokens, remote_id, req, since):
+        d = json_of(call("GET", url(f"{graph()}/{remote_id}/media", fields="id,caption,timestamp,permalink", limit="10", access_token=tokens.access_token), label=self.label), self.label)
+        for m in d.get("data", []):
+            if text_matches(m.get("caption"), req.caption):
+                return PublishResult(m["id"], m.get("permalink"))
+        return None
+
+
+class Facebook(_FacebookLogin):
+    platform = "facebook"
+    label = "Facebook"
+    scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "business_management"]
+    docs_url = "https://developers.facebook.com/docs/video-api/guides/reels-publishing"
+
+    def identities(self, app, tokens):
+        out = [Identity(remote_id=p["id"], handle=p.get("name") or p["id"], tokens=Tokens(p["access_token"])) for p in self._pages(tokens) if p.get("access_token")]
+        if not out:
+            raise PermanentError("no pages", user_message="No Facebook Pages were shared. Connect again and select at least one Page.")
+        return out
+
+    def publish(self, app, tokens, remote_id, req):
+        tok = tokens.access_token
+        d = json_of(call("POST", f"{graph()}/{remote_id}/video_reels", label=self.label, data={"upload_phase": "start", "access_token": tok}), self.label)
+        video_id, upload_url = d["video_id"], d.get("upload_url") or f"{rupload('video-upload')}/{d['video_id']}"
+        size = req.video.stat().st_size
+        call("POST", upload_url, label=self.label, headers={"Authorization": f"OAuth {tok}", "offset": "0", "file_size": str(size)}, content=req.video.read_bytes())
+        call("POST", f"{graph()}/{remote_id}/video_reels", label=self.label, commit=True, data={"upload_phase": "finish", "video_id": video_id, "video_state": "PUBLISHED", "description": req.caption, "access_token": tok})
+        return PublishResult(video_id, f"https://www.facebook.com/reel/{video_id}")
+
+    def find(self, app, tokens, remote_id, req, since):
+        d = json_of(call("GET", url(f"{graph()}/{remote_id}/video_reels", fields="id,description,created_time", limit="10", access_token=tokens.access_token), label=self.label), self.label)
+        for v in d.get("data", []):
+            if text_matches(v.get("description"), req.caption):
+                return PublishResult(v["id"], f"https://www.facebook.com/reel/{v['id']}")
+        return None
+
+
+THREADS = "https://graph.threads.net"
+
+
+class Threads(Provider):
+    platform = "threads"
+    label = "Threads"
+    scopes = ["threads_basic", "threads_content_publish"]
+    docs_url = "https://developers.facebook.com/docs/threads/posts"
+    client_id_label = "Threads App ID"
+
+    def auth_url(self, app, state, redirect_uri, code_challenge):
+        return url("https://threads.net/oauth/authorize", client_id=app.client_id, redirect_uri=redirect_uri, scope=",".join(self.scopes), response_type="code", state=state)
+
+    def exchange(self, app, code, redirect_uri, verifier):
+        d = json_of(call("POST", f"{THREADS}/oauth/access_token", label=self.label, data={"client_id": app.client_id, "client_secret": app.client_secret, "grant_type": "authorization_code", "redirect_uri": redirect_uri, "code": code}), self.label)
+        r = call("GET", url(f"{THREADS}/access_token", grant_type="th_exchange_token", client_secret=app.client_secret, access_token=d["access_token"]), label=self.label)
+        return Tokens.from_oauth(json_of(r, self.label))
+
+    def refresh(self, app, tokens):
+        r = call("GET", url(f"{THREADS}/refresh_access_token", grant_type="th_refresh_token", access_token=tokens.access_token), label=self.label)
+        return Tokens.from_oauth(json_of(r, self.label))
+
+    def identities(self, app, tokens):
+        d = json_of(call("GET", url(f"{THREADS}/v1.0/me", fields="id,username", access_token=tokens.access_token), label=self.label), self.label)
+        return [Identity(remote_id=d["id"], handle=f"@{d.get('username') or d['id']}", tokens=tokens)]
+
+    def publish(self, app, tokens, remote_id, req):
+        public = req.account_options.get("_public_video_url")
+        if not public:
+            raise PermanentError("no public url", user_message="Threads needs the video at a public web address. Set CLIPSTAR_PUBLIC_MEDIA_URL to an address where this server is reachable from the internet.")
+        tok = tokens.access_token
+        d = json_of(call("POST", f"{THREADS}/v1.0/{remote_id}/threads", label=self.label, data={"media_type": "VIDEO", "video_url": public, "text": req.caption[:500], "access_token": tok}), self.label)
+        cid = d["id"]
+
+        def ready():
+            s = json_of(call("GET", url(f"{THREADS}/v1.0/{cid}", fields="status,error_message", access_token=tok), label=self.label), self.label)
+            if s.get("status") == "FINISHED":
+                return "ok"
+            if s.get("status") in ("ERROR", "EXPIRED"):
+                raise PermanentError(str(s), user_message=f"Threads couldn't process the video: {s.get('error_message') or s.get('status')}")
+            return None
+
+        wait_until(ready, label=self.label)
+        pid = json_of(call("POST", f"{THREADS}/v1.0/{remote_id}/threads_publish", label=self.label, commit=True, data={"creation_id": cid, "access_token": tok}), self.label)["id"]
+        link = None
+        try:
+            link = json_of(call("GET", url(f"{THREADS}/v1.0/{pid}", fields="permalink", access_token=tok), label=self.label), self.label).get("permalink")
+        except Exception:
+            pass
+        return PublishResult(pid, link)
+
+    def find(self, app, tokens, remote_id, req, since):
+        d = json_of(call("GET", url(f"{THREADS}/v1.0/{remote_id}/threads", fields="id,text,timestamp,permalink", limit="10", access_token=tokens.access_token), label=self.label), self.label)
+        for t in d.get("data", []):
+            if text_matches(t.get("text"), req.caption):
+                return PublishResult(t["id"], t.get("permalink"))
+        return None

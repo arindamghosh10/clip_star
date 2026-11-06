@@ -17,6 +17,7 @@ dependencies = [
   "anthropic>=2.6,<3",
   # 4.10 still bundles the face detector cascades (removed in 5.x)
   "opencv-python-headless==4.10.0.84",
+  "cryptography>=43,<47",
 ]
 
 [project.optional-dependencies]

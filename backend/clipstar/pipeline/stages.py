@@ -425,6 +425,9 @@ def _on_success(s: Session, job: Job, result: dict) -> None:
     else:
         video.status = VideoStatus.ready
         video.progress = 100
+        from ..publishing.service import queue_rules
+
+        queue_rules(s, video.id)  # automation rules may turn the new clips into a batch
 
 
 def _replace_clips(s: Session, video: Video, new: list[dict]) -> None:

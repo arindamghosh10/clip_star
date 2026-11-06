@@ -11,6 +11,8 @@ os.environ["CLIPSTAR_STORAGE_DIR"] = str(_TMP / "storage")
 os.environ["CLIPSTAR_JOB_BACKOFF_BASE_SECONDS"] = "0.01"
 os.environ["CLIPSTAR_JOB_BACKOFF_MAX_SECONDS"] = "0.05"
 os.environ.pop("CLIPSTAR_API_TOKEN", None)
+os.environ["CLIPSTAR_SECRET_KEY"] = "q4yJ1n1xF7n0VvDKl8wzG7Hn3c5a6TQm2u1gYvO0S2M="
+os.environ["CLIPSTAR_PUBLIC_MEDIA_URL"] = "https://clips.example.com"
 
 from alembic import command  # noqa: E402
 from alembic.config import Config  # noqa: E402
@@ -37,7 +39,7 @@ def _migrate():
 @pytest.fixture(autouse=True)
 def _clean():
     with get_engine().begin() as c:
-        c.execute(text("TRUNCATE workspaces, videos, assets, clips, accounts, batches, posts, rules, engine_choices, jobs, job_events, workers CASCADE"))
+        c.execute(text("TRUNCATE workspaces, videos, assets, clips, accounts, batches, posts, rules, engine_choices, jobs, job_events, workers, platform_apps, oauth_states CASCADE"))
     yield
 
 

@@ -58,10 +58,19 @@ class Worker:
         signal.signal(signal.SIGINT, self.stop)
         log.info("worker %s started", self.id)
         last_beat = 0.0
+        last_dispatch = 0.0
         while not self._stop.is_set():
             if time.monotonic() - last_beat > 15:
                 self._beat()
                 last_beat = time.monotonic()
+            if time.monotonic() - last_dispatch > self.settings.publish_check_seconds:
+                last_dispatch = time.monotonic()
+                try:
+                    from .publishing.service import dispatch
+
+                    dispatch()
+                except Exception:
+                    log.exception("publish dispatch failed")
             try:
                 ran = self.run_once()
             except Exception:

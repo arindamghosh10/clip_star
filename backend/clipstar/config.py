@@ -45,6 +45,19 @@ class Settings(BaseSettings):
     render_crf: int = 21
     caption_font: str = "DejaVu Sans"
 
+    # Publishing
+    # Where the API is reachable from the browser (OAuth redirects come back here) and where the web app is.
+    public_api_url: str = "http://localhost:8000"
+    web_url: str = "http://localhost:3000"
+    # Encryption key for app secrets and account tokens. If unset, one is created in <storage_dir>/.secret_key.
+    secret_key: str | None = None
+    # Public base address of this server, for platforms that download the video themselves (Threads).
+    public_media_url: str | None = None
+    meta_graph_version: str = "v23.0"
+    linkedin_version: str = "202608"  # LinkedIn-Version header (YYYYMM); LinkedIn retires versions after ~1 year
+    publish_check_seconds: float = 20.0
+    platform_timeout_seconds: float = 120.0
+
     # faster-whisper (free transcription engine)
     whisper_model: str = "small"
     whisper_device: str = "auto"  # auto | cpu | cuda

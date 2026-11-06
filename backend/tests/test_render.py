@@ -66,7 +66,7 @@ def _upload(client, video, tmp_path):
 def test_full_pipeline_renders_vertical_clips_with_variants(client, talk_video, tmp_path):
     _settings(client)
     vid = _upload(client, talk_video, tmp_path)
-    assert drain(Worker("w"), limit=10) == 5  # ingest, understand, moments, edit, package
+    assert drain(Worker("w"), limit=10) == 6  # ingest, understand, moments, edit, package, rules
     v = client.get(f"/api/videos/{vid}").json()
     assert v["status"] == "ready", v
     assert v["meta"]["moments"]["engine"] == "rules"

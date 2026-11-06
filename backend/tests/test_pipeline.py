@@ -30,7 +30,7 @@ def test_full_ingest_and_understand_with_captions(client, sample_video, sample_s
     v = _upload(client, sample_video, sample_srt)
     assert v["status"] == "queued" and v["active_job_id"]
     ran = drain(Worker("w"))
-    assert ran == 5  # ingest, understand, moments, edit, package (12 s video: too short for a clip)
+    assert ran == 6  # ingest, understand, moments, edit, package, rules (12 s video: too short for a clip)
 
     v = client.get(f"/api/videos/{v['id']}").json()
     assert v["status"] == "ready", v

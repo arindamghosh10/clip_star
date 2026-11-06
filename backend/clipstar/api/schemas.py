@@ -184,6 +184,13 @@ class AccountIn(BaseModel):
         return validate_hhmm(v)
 
 
+class AccountOptions(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    board_id: str | None = Field(default=None, max_length=100)  # Pinterest
+    privacy: str | None = Field(default=None, max_length=40)  # YouTube: public|unlisted|private; TikTok: PUBLIC_TO_EVERYONE|SELF_ONLY|...
+    simulate: Literal["ok", "fail_once", "fail", "timeout", "expired"] | None = None  # practice accounts only
+
+
 class AccountPatch(BaseModel):
     group_name: str | None = Field(default=None, max_length=100)
     status: AccountStatus | None = None
@@ -192,6 +199,8 @@ class AccountPatch(BaseModel):
     daily_cap: int | None = Field(default=None, ge=1, le=500)
     posting_start: str | None = None
     posting_end: str | None = None
+    handle: str | None = Field(default=None, min_length=1, max_length=200)
+    options: AccountOptions | None = None
 
     @field_validator("timezone")
     @classmethod
@@ -215,6 +224,11 @@ class AccountOut(ORM):
     daily_cap: int
     posting_start: str
     posting_end: str
+    connection: str
+    remote_id: str | None
+    token_expires_at: datetime | None
+    options: dict
+    last_error: str | None
     created_at: datetime
 
 
@@ -224,6 +238,8 @@ class AccountOut(ORM):
 class BatchOut(ORM):
     id: uuid.UUID
     name: str
+    origin: str = "manual"
+    warnings: list = []
     status: BatchStatus
     variations: str
     approved_at: datetime | None
@@ -247,6 +263,8 @@ class PostOut(ORM):
     attempts: int
     last_error: str | None
     published_at: datetime | None
+    started_at: datetime | None = None
+    remote_url: str | None = None
     metrics: dict
 
 

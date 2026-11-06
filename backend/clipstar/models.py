@@ -202,6 +202,13 @@ class Account(Base):
     daily_cap: Mapped[int] = mapped_column(Integer, default=10)
     posting_start: Mapped[str] = mapped_column(String(5), default="09:00")  # local HH:MM
     posting_end: Mapped[str] = mapped_column(String(5), default="21:00")
+    # "oauth" = connected through the platform's login; "simulated" = practice account, posts are simulated
+    connection: Mapped[str] = mapped_column(String(16), default="simulated", server_default="simulated")
+    remote_id: Mapped[str | None] = mapped_column(String(200))  # the platform's id for this account/page/channel
+    token_enc: Mapped[str | None] = mapped_column(Text)  # encrypted JSON: access/refresh tokens, expiry, scopes
+    token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    options: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))  # e.g. Pinterest board
+    last_error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _created()
     __table_args__ = (
         UniqueConstraint("workspace_id", "platform", "handle", name="uq_account_handle"),
@@ -216,11 +223,15 @@ class Batch(Base):
     name: Mapped[str] = mapped_column(String(300))
     status: Mapped[BatchStatus] = mapped_column(_enum(BatchStatus, "batch_status"), default=BatchStatus.awaiting)
     variations: Mapped[str] = mapped_column(String(64), default="off")
+    # "manual", or "rule:<rule id>:<video id>" so a rule creates at most one batch per video
+    origin: Mapped[str] = mapped_column(String(120), default="manual", server_default="manual")
+    warnings: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
 
     posts: Mapped[list["Post"]] = relationship(back_populates="batch", cascade="all, delete-orphan", passive_deletes=True)
+    __table_args__ = (Index("uq_batch_rule_origin", "workspace_id", "origin", unique=True, postgresql_where=text("origin <> 'manual'")),)
 
 
 class Post(Base):
@@ -237,6 +248,9 @@ class Post(Base):
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # last time a platform call began
+    remote_url: Mapped[str | None] = mapped_column(String(500))
+    verify_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     metrics: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
@@ -314,3 +328,26 @@ class WorkerHeartbeat(Base):
     started_at: Mapped[datetime] = _created()
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     current_job: Mapped[uuid.UUID | None] = mapped_column()
+
+
+class PlatformApp(Base):
+    """The developer app a self-hoster registered with a platform (one per platform)."""
+
+    __tablename__ = "platform_apps"
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), primary_key=True)
+    platform: Mapped[Platform] = mapped_column(_enum(Platform, "platform"), primary_key=True)
+    client_id: Mapped[str] = mapped_column(String(300))
+    secret_enc: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = _updated()
+
+
+class OAuthState(Base):
+    """One pending "connect account" attempt; the state value proves the callback is ours."""
+
+    __tablename__ = "oauth_states"
+    state: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"))
+    platform: Mapped[Platform] = mapped_column(_enum(Platform, "platform"))
+    verifier: Mapped[str] = mapped_column(String(128))  # PKCE code verifier
+    group_name: Mapped[str] = mapped_column(String(100), default="")
+    created_at: Mapped[datetime] = _created()
