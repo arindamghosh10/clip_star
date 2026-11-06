@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import { ClipCard } from "@/components/ClipCard";
+import { LiveVideo } from "@/components/LiveVideo";
+import { isUuid } from "@/lib/api";
 import { PipelineRail } from "@/components/PipelineRail";
 import { Card, EmptyNote, PageHeader, Progress } from "@/components/ui";
 import { STAGES, VIDEOS } from "@/lib/data";
@@ -16,8 +18,12 @@ const ENERGY = Array.from({ length: 60 }, (_, i) => {
 });
 const HOT = new Set([14, 15, 21, 33, 34, 41, 47]);
 
-export default function VideoDetail() {
+export default function VideoPage() {
   const { id } = useParams<{ id: string }>();
+  return isUuid(id) ? <LiveVideo id={id} /> : <SampleVideoDetail id={id} />;
+}
+
+function SampleVideoDetail({ id }: { id: string }) {
   const { clips } = useStore();
   const video = VIDEOS.find((v) => v.id === id);
 

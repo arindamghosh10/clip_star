@@ -14,3 +14,4 @@ __pycache__/
 *.egg-info/
 backend/data/
 .pytest_cache/
+!apps/web/.env.development

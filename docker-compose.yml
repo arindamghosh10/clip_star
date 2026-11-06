@@ -1,0 +1,70 @@
+# One command to run everything:  docker compose up --build
+# Then open http://localhost:3000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: clipstar
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-clipstar}
+      POSTGRES_DB: clipstar
+    volumes:
+      - db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clipstar"]
+      interval: 5s
+      retries: 20
+    restart: unless-stopped
+
+  api:
+    build: ./backend
+    command: api
+    environment: &backend-env
+      CLIPSTAR_DATABASE_URL: postgresql+psycopg://clipstar:${POSTGRES_PASSWORD:-clipstar}@db:5432/clipstar
+      CLIPSTAR_STORAGE_DIR: /data
+      CLIPSTAR_API_TOKEN: ${CLIPSTAR_API_TOKEN:-}
+      CLIPSTAR_WHISPER_MODEL: ${CLIPSTAR_WHISPER_MODEL:-small}
+      CLIPSTAR_CORS_ORIGINS: '["http://localhost:3000"]'
+    volumes:
+      - media:/data
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  worker:
+    build: ./backend
+    command: worker
+    environment: *backend-env
+    volumes:
+      - media:/data
+      - models:/home/clipstar/.cache
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+    stop_grace_period: 2m
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # Single entry point: http://localhost:3000 -> web app, /api -> API (uploads streamed).
+  proxy:
+    image: caddy:2-alpine
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "127.0.0.1:3000:80"
+    depends_on:
+      - web
+      - api
+    restart: unless-stopped
+
+volumes:
+  db:
+  media:
+  models:

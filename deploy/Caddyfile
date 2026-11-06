@@ -1,0 +1,11 @@
+:80 {
+	# Videos can be many GB: stream request bodies straight to the API, no size limit here.
+	handle /api/* {
+		reverse_proxy api:8000 {
+			flush_interval -1
+		}
+	}
+	handle {
+		reverse_proxy web:3000
+	}
+}

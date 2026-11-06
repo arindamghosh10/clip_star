@@ -10,48 +10,63 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
                           └──────────────── learning loop ───────────────────────┘
 ```
 
+- Design and reliability rules: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Build phases and what's done: [`docs/ROADMAP.md`](docs/ROADMAP.md)
+
 ## Status
 
-**Step 1: frontend prototype.** Every screen is clickable and runs on sample data in `apps/web/lib/data.ts`. Approving clips, approving or disabling batches, toggling rules and accounts, sending replies and switching engines all change what you see, but nothing is saved or sent anywhere yet.
+| Part | State |
+|---|---|
+| Durable job engine (retries, crash recovery, cancel, Activity screen) | **Working** |
+| Ingest: upload, probe, 720p preview, audio | **Working** |
+| Understand: transcript (Whisper or your .srt/.vtt), scene cuts, loud moments | **Working** |
+| Videos and Activity screens | **Live** on the backend |
+| Find moments, Edit, Package, Publish, Engage, Measure, Learn | Next phases; their screens show sample data |
 
-## Run it
-
-Requires Node 20+.
+## Run with Docker (one command)
 
 ```bash
-npm install
-npm run dev        # http://localhost:3000
+docker compose up --build
 ```
 
-## Screens
+Open http://localhost:3000. The first transcription downloads the Whisper model (about 500 MB for `small`). Change it with `CLIPSTAR_WHISPER_MODEL=base docker compose up`. Set `CLIPSTAR_API_TOKEN` to require a token on every API call.
 
-| Route | Stage | What it shows |
-|---|---|---|
-| `/` | all | Pipeline, what needs you, scheduled and live posts, insights |
-| `/videos`, `/videos/[id]` | 01–05 | Upload, pipeline progress, what the system understood, clips per video |
-| `/clips` | 03–05 | Clips with score, reason, variants and per-platform copy; approve or reject |
-| `/publishing` | 06 | Batches (approve once, disable any time), automation rules, variation matrix |
-| `/calendar` | 06 | Week of posts across all accounts; switch single posts off |
-| `/accounts` | — | Many accounts per platform, groups, status, daily caps, pause posting |
-| `/engage` | 07 | Sorted comments on your own posts with drafted replies |
-| `/analytics` | 08–09 | Views, top clips, weekly insights |
-| `/engines` | all | Pick the engine for each stage, connections, run cost preview |
-| `/settings` | — | Creator profile, brand kit, approvals, publishing safety defaults |
+## Run for development
+
+Requirements: Python 3.11+, Node 20+, PostgreSQL 14+, FFmpeg.
+
+```bash
+# backend
+cd backend
+python -m venv .venv && . .venv/bin/activate
+pip install -e ".[dev,whisper]"
+export CLIPSTAR_DATABASE_URL=postgresql+psycopg://postgres@localhost:5432/clipstar
+alembic upgrade head
+uvicorn clipstar.api.main:app --port 8000      # API
+python -m clipstar.worker                       # worker (separate terminal; run several if you like)
+
+# frontend (another terminal, repo root)
+npm install
+npm run dev                                     # http://localhost:3000
+```
+
+Tests (need a Postgres database named `clipstar_test`):
+
+```bash
+cd backend && CLIPSTAR_DATABASE_URL=postgresql+psycopg://postgres@localhost:5432/clipstar_test pytest
+```
 
 ## Layout
 
 ```
-apps/web/          Next.js + Tailwind frontend
-  app/             one folder per screen
-  components/      shell, shared UI, pipeline rail, clip card
-  lib/data.ts      sample data (to be replaced by the API)
-  lib/store.tsx    in-memory UI state for the prototype
+apps/web/            Next.js + Tailwind frontend
+backend/clipstar/
+  api/               REST API (FastAPI)
+  jobs/              durable Postgres job queue and handler runtime
+  pipeline/          pipeline stages (ingest, understand, …)
+  engines/           plugin engines (whisper, captions file, …)
+  worker.py          job worker process
+backend/migrations/  database migrations (Alembic)
+backend/tests/       tests against real Postgres and FFmpeg
+deploy/Caddyfile     reverse proxy used by docker compose
 ```
-
-## Next steps
-
-1. API and database (accounts, videos, clips, batches, rules) behind the same screens.
-2. Ingest + Understand workers (FFmpeg, WhisperX) and the plugin contract for engines.
-3. Moment finder and renderer (local model or Claude, FFmpeg 9:16 + captions).
-4. Publishers per platform through official APIs, batch scheduler with per-account limits.
-5. Comment sync and reply drafts, analytics sync, weekly insights.

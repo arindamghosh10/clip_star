@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import {
+  Activity,
   BarChart3,
   Blocks,
   CalendarDays,
@@ -32,6 +33,7 @@ const NAV = [
   { href: "/engage", label: "Engage", icon: MessageSquare },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
   { href: "/engines", label: "Engines & connectors", icon: Blocks },
+  { href: "/activity", label: "Activity", icon: Activity },
   { href: "/settings", label: "Settings", icon: Settings },
 ];
 
@@ -91,6 +93,20 @@ function Workspace() {
   );
 }
 
+// Screens connected to the real backend so far. Everything else still shows sample data.
+const LIVE = ["/videos", "/activity"];
+
+function SampleNotice() {
+  const path = usePathname();
+  if (LIVE.some((p) => path.startsWith(p))) return null;
+  if (path.startsWith("/videos/") ) return null;
+  return (
+    <p className="-mb-2 rounded border border-paid/30 bg-paid-soft px-3 py-2 text-xs text-paid">
+      Sample data. This screen connects to the backend in a later build phase. Videos and Activity are live.
+    </p>
+  );
+}
+
 function Toast() {
   const { toast } = useStore();
   if (!toast) return null;
@@ -139,7 +155,10 @@ function Frame({ children }: { children: ReactNode }) {
             </div>
           </div>
         )}
-        <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">{children}</main>
+        <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <SampleNotice />
+          {children}
+        </main>
       </div>
       <Toast />
     </div>
