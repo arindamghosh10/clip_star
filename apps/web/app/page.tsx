@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight, Upload } from "lucide-react";
 import { InsightCard, PracticeNote } from "@/components/Analytics";
+import { useAuth } from "@/components/Auth";
 import { PipelineRail } from "@/components/PipelineRail";
 import { Card, EmptyNote, PageHeader, PlatformBadge, Progress, Stat } from "@/components/ui";
 import { api, fmtDelta, fmtNum, fmtTime } from "@/lib/api";
@@ -12,6 +13,7 @@ import { usePoll } from "@/lib/usePoll";
 import { Button } from "@/components/ui";
 
 export default function Overview() {
+  const { state, can } = useAuth();
   const ws = usePoll(api.workspace, { intervalMs: 60000 });
   const videos = usePoll(api.videos, { intervalMs: 5000 });
   const pending = usePoll(() => api.clips({ status: "pending" }), { intervalMs: 15000 });
@@ -46,6 +48,15 @@ export default function Overview() {
           </Link>
         }
       />
+      {state && !state.setup_done && can("owner") && (
+        <Link href="/setup?step=1" className="flex items-center justify-between gap-3 rounded-md border border-accent/30 bg-accent-soft p-4 text-sm hover:border-accent">
+          <span>
+            <span className="font-semibold">Finish setting up clip_star</span>
+            <span className="block text-muted">Creator profile, engines, accounts and your first video. A few minutes.</span>
+          </span>
+          <ArrowRight size={16} className="shrink-0 text-accent" />
+        </Link>
+      )}
       {ov.error && <p role="alert" className="rounded bg-rec/10 p-3 text-sm text-rec">{ov.error}</p>}
       <PracticeNote show={!!t && t.practice_posts > 0} />
 

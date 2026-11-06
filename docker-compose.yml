@@ -28,6 +28,19 @@ services:
       # Optional: a local Ollama server for the free local-model engine
       CLIPSTAR_OLLAMA_URL: ${CLIPSTAR_OLLAMA_URL:-http://host.docker.internal:11434}
       CLIPSTAR_CORS_ORIGINS: '["http://localhost:3000"]'
+      # Where the app is reached in the browser (invite links, OAuth, email links). Set COOKIE_SECURE=true behind https.
+      CLIPSTAR_WEB_URL: ${CLIPSTAR_WEB_URL:-http://localhost:3000}
+      CLIPSTAR_PUBLIC_API_URL: ${CLIPSTAR_PUBLIC_API_URL:-http://localhost:3000}
+      CLIPSTAR_COOKIE_SECURE: ${CLIPSTAR_COOKIE_SECURE:-false}
+      # Optional email notifications
+      CLIPSTAR_SMTP_HOST: ${CLIPSTAR_SMTP_HOST:-}
+      CLIPSTAR_SMTP_PORT: ${CLIPSTAR_SMTP_PORT:-587}
+      CLIPSTAR_SMTP_USER: ${CLIPSTAR_SMTP_USER:-}
+      CLIPSTAR_SMTP_PASSWORD: ${CLIPSTAR_SMTP_PASSWORD:-}
+      CLIPSTAR_SMTP_FROM: ${CLIPSTAR_SMTP_FROM:-}
+      # Daily backups (database + encryption key) kept here; copy them off this machine too
+      CLIPSTAR_BACKUP_DIR: /data/backups
+      CLIPSTAR_BACKUP_KEEP: ${CLIPSTAR_BACKUP_KEEP:-7}
     volumes:
       - media:/data
     depends_on:

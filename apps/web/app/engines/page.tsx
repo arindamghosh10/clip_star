@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle } from "lucide-react";
+import { BudgetCard } from "@/components/AdminSettings";
 import { Badge, Card, PageHeader, cx } from "@/components/ui";
 import { STAGES } from "@/lib/data";
 import { api, type ApiEngine } from "@/lib/api";
@@ -11,10 +12,9 @@ import { usePoll } from "@/lib/usePoll";
 const BUILT_IN: Record<string, string> = {
   ingest: "FFmpeg (built in): checks the file, makes a 720p preview copy and extracts audio.",
   edit: "FFmpeg + OpenCV (built in): vertical reframing, word-by-word captions, hook title, loudness levelling.",
-  publish: "Coming in the next build phase: official platform APIs.",
-  engage: "Coming in a later build phase.",
-  measure: "Coming in a later build phase.",
-  learn: "Coming in a later build phase.",
+  publish: "Official platform APIs (built in): YouTube, Instagram, Facebook, Threads, TikTok, X, LinkedIn, Pinterest. Set up in Settings → Platform apps.",
+  measure: "Official platform APIs (built in): views, watch time, shares and follows, 1 hour to 7 days after each post.",
+  learn: "Built in: insights, weekly reports and a per-creator scoring model that only switches on when it beats the built-in rules.",
 };
 
 export default function Engines() {
@@ -38,6 +38,7 @@ export default function Engines() {
         title="Engines & connectors"
         description="Choose what runs each stage. Free engines are open source or built in. Connectors use your own accounts, and you pay the provider directly."
       />
+      <BudgetCard />
       <div className="flex flex-wrap gap-2 text-xs">
         <Badge tone="free">Free</Badge>
         <Badge tone="paid">Connector · your account</Badge>

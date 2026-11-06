@@ -2,6 +2,8 @@ def register_all() -> None:
     from ..engage.service import register_handlers as engage
     from ..learn.measure import register_handlers as measure
     from ..learn.report import register_handlers as report
+    from ..maintenance import register_handlers as maintenance
+    from ..notify import register_handlers as notify
     from ..publishing.service import register_handlers as publishing
     from .stages import register_handlers
 
@@ -10,3 +12,5 @@ def register_all() -> None:
     engage()
     measure()
     report()
+    notify()
+    maintenance()

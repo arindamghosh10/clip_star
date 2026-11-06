@@ -141,6 +141,8 @@ class WorkspaceSettingsIn(BaseModel):
     replies_per_hour: int | None = Field(default=None, ge=1, le=200)
     lead_reply: str | None = Field(default=None, max_length=500)
     comment_sync_minutes: int | None = Field(default=None, ge=5, le=1440)
+    # first-run wizard finished
+    setup_done: bool | None = None
 
 
 class WorkspacePatch(BaseModel):

@@ -16,8 +16,8 @@ from .config import get_settings
 from .errors import PermanentError
 
 
-@lru_cache
-def _fernet() -> Fernet:
+def current_key() -> str:
+    """The encryption key in use (created on first use). Needed in backups: without it, saved logins can't be read."""
     st = get_settings()
     key = st.secret_key
     if not key:
@@ -30,6 +30,12 @@ def _fernet() -> Fernet:
             fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
             with os.fdopen(fd, "w") as f:
                 f.write(key)
+    return key
+
+
+@lru_cache
+def _fernet() -> Fernet:
+    key = current_key()
     try:
         return Fernet(key.encode() if isinstance(key, str) else key)
     except (ValueError, TypeError) as e:

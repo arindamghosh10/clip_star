@@ -76,18 +76,22 @@ class Worker:
                     log.exception("publish dispatch failed")
                 try:
                     from .learn.measure import dispatch_metrics
+                    from .notify import dispatch_email
 
                     dispatch_metrics()
+                    dispatch_email()
                 except Exception:
-                    log.exception("metrics dispatch failed")
+                    log.exception("metrics/email dispatch failed")
             if time.monotonic() - last_report > 600:
                 last_report = time.monotonic()
                 try:
                     from .learn.report import dispatch_reports
+                    from .maintenance import dispatch_maintenance
 
                     dispatch_reports()
+                    dispatch_maintenance()
                 except Exception:
-                    log.exception("report dispatch failed")
+                    log.exception("report/maintenance dispatch failed")
             try:
                 ran = self.run_once()
             except Exception:
@@ -140,7 +144,11 @@ class Worker:
         try:
             if handler is None:
                 raise PermanentError(f"No handler for job kind '{job.kind}'.")
-            result = handler.run(ctx) or {}
+            from .budget import scope
+
+            stage = str(job.payload.get("stage") or job.kind.split(".")[0])
+            with scope(stage, job.video_id):  # paid-engine calls in this job are metered against its workspace
+                result = handler.run(ctx) or {}
         except BaseException as e:  # noqa: BLE001 - we record every failure
             error = e
         finally:

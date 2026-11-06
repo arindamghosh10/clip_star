@@ -2,7 +2,7 @@
 
 The one place that says **what we plan to build** and **what is built**. Update it at the end of every phase (see "How to update" at the bottom).
 
-**Last updated:** 2026-11-06 (Phase 8) · **Current phase:** 8 done, 9 next · **Branch:** `main`
+**Last updated:** 2026-11-06 (Phase 9) · **Current phase:** 9 done, 10 next · **Branch:** `main`
 
 Legend: ✅ built and tested · 🟡 built, not yet verified for real (see notes) · ⬜ planned, not built
 
@@ -35,8 +35,8 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | 6 | Accounts + Publish | ✅ / 🟡 | Scheduled posts across accounts, no double posts (real platforms 🟡) |
 | 7 | Engage | ✅ / 🟡 | Comments synced and sorted; approved replies appear on the platform (real platforms 🟡) |
 | 8 | Measure + Learn | ✅ / 🟡 | Real stats per post/account; weekly insights; per-creator scoring (real platform stats 🟡) |
-| 9 | Setup wizard, users/roles, notifications, budgets, storage lifecycle, backups | ⬜ **next** | Fresh install to first published clip without reading code |
-| 10 | Public API, webhooks, clip_star MCP server | ⬜ | External tools and assistants can drive clip_star |
+| 9 | Setup wizard, users/roles, notifications, budgets, storage lifecycle, backups | ✅ / 🟡 | Fresh install to first published clip without reading code (email delivery and Docker backups 🟡) |
+| 10 | Public API, webhooks, clip_star MCP server | ⬜ **next** | External tools and assistants can drive clip_star |
 
 ---
 
@@ -49,11 +49,18 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Retryable vs permanent errors with plain-language messages | ✅ | |
 | Activity screen: health, every job, attempts, event log, retry/cancel | ✅ | |
 | Encrypted secrets (app keys, account logins) | ✅ | Key: `CLIPSTAR_SECRET_KEY` or `<storage>/.secret_key`, back it up |
-| Optional API token | ✅ | `CLIPSTAR_API_TOKEN` |
+| Optional API token (scripts and automation, owner rights) | ✅ | `CLIPSTAR_API_TOKEN` |
 | Docker Compose (db, api, worker, web, Caddy proxy) | 🟡 | Validated, but images couldn't be built in the dev sandbox; run `docker compose up --build` once |
-| Users, login, roles, multiple workspaces | ⬜ | Phase 9 (single workspace today) |
-| Notifications (email/webhook/push) | ⬜ | Phase 9 |
-| Spend caps per connector, storage cleanup, backups | ⬜ | Phase 9 |
+| First-run setup wizard (owner, profile, engines, accounts, first video) | ✅ | Open only until the owner exists; asks for the API token if one is set |
+| Team sign-in: hashed passwords, 30-day sessions, lockout after 5 wrong tries, invite links, sign out everywhere on password change or disable | ✅ | See `docs/OPERATIONS.md` |
+| Roles: owner, editor, reviewer, viewer, checked on every API call | ✅ | Always at least one owner |
+| Multiple workspaces | ⬜ | Single workspace today |
+| Notifications: bell in the app, one hook for every status change, deduplicated | ✅ | Batch waiting, post problems, reconnect, video ready/failed, leads, report, budget, disk, backups |
+| Email notifications (SMTP), per-person choice of what to email | ✅ / 🟡 | Tested with a fake mail server; set `CLIPSTAR_SMTP_*` to use |
+| Webhook / push notifications | ⬜ | Phase 10 (webhooks) |
+| Monthly budget for paid engines; over budget the free engine takes over | ✅ | Estimated from token counts and configurable prices |
+| Storage: usage by kind, audio clean-up, rejected-render clean-up, optional archiving, purge of old records, low-disk alert | ✅ | Daily, owner sets the rules |
+| Backups: database + encryption key (+ optional media), daily with rotation, download, restore command | ✅ / 🟡 | Round-trip tested with pg_dump/pg_restore 16; Docker image install of the client tools not built in the sandbox |
 
 ### 01 Ingest
 | Feature | Status | Notes |
@@ -161,6 +168,8 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Claude / Ollama engines | No API key or Ollama server in the sandbox | Set the key or start Ollama, select the engine in Engines & connectors, process a video |
 | Face-following crop | Test videos had no people | Process a talking-head video; check the clip framing |
 | Docker images | Builds couldn't download packages in the sandbox | `docker compose up --build`, open http://localhost:3000 |
+| Email notifications | No mail server in the sandbox | Set `CLIPSTAR_SMTP_*`, invite yourself a second user, check the invite email arrives |
+| Backups inside Docker | Same as Docker images | `docker compose exec worker python -m clipstar.backup create`, then restore into a test copy |
 
 ---
 
@@ -170,6 +179,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 - TikTok posts are private until the app passes TikTok's audit. Threads needs this server reachable from the internet.
 - Not built on purpose: proxies or IP rotation per account, fingerprint spoofing, automatic account creation, edits made only to dodge duplicate detection, commenting on other people's content.
 - Uncertain posts are never re-sent automatically; the user decides after a check.
+- A fresh install is open until the owner account is created in the setup wizard; finish setup right away (or set `CLIPSTAR_API_TOKEN`, which the wizard then asks for).
 - Stats are compared per account (each post against that account's typical views) so big accounts don't drown out small ones. With little data, Analytics says so rather than guessing.
 - Practice accounts produce made-up stats with built-in patterns (number hooks and 35–50 s clips do better) so insights and learning can be tried; they are always labelled.
 - Rendering on CPU takes roughly the clip's length per version; one version per clip is a setting.
@@ -200,6 +210,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | 2026-11-06 | — | PROJECT_STATUS.md added; agent-reach reviewed (noted as a possible optional research connector) |
 | 2026-11-06 | 7 | Engage: comment sync (5 platforms + practice), sorting, drafts (rules/Claude/Ollama), safe replies with hourly limits, auto-reply and auto-hide, live Engage screen |
 | 2026-11-06 | 8 | Measure + Learn: stats for 7 platforms + practice, follower counts, live Overview/Analytics/account performance, insights, ideas from questions, re-clip, learned scoring in Find moments, weekly reports |
+| 2026-11-06 | 9 | Setup wizard, team sign-in and roles, notifications (bell + email), paid-engine budgets, storage clean-up and archiving, backups with restore; fixed Settings save failing once the learned model existed; `docs/OPERATIONS.md` |
 
 ---
 

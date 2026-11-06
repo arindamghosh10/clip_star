@@ -110,6 +110,9 @@ def get_clip(clip_id: uuid.UUID, s: Session = Depends(get_session), ws: Workspac
     return _clip(s, ws, clip_id)
 
 
+ARCHIVED = "This video was archived to save space (its original file was deleted), so its clips can't be re-cut or re-rendered. Text and captions can still be edited."
+
+
 @router.patch("/clips/{clip_id}", response_model=ClipOut)
 def update_clip(clip_id: uuid.UUID, body: ClipPatch, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
     from ..pipeline.package import PLATFORM_RULES, check_copy, normalize_tag
@@ -122,6 +125,8 @@ def update_clip(clip_id: uuid.UUID, body: ClipPatch, s: Session = Depends(get_se
     data = body.model_dump(exclude_unset=True, by_alias=False)
     meta = dict(c.meta or {})
     rerender = False
+    if (video.meta or {}).get("archived") and ("start_s" in data or "end_s" in data or "variants" in data):
+        raise HTTPException(409, ARCHIVED)
 
     if "start_s" in data or "end_s" in data:
         start = data.pop("start_s", c.start_s)
@@ -278,6 +283,8 @@ def rerender_clip(clip_id: uuid.UUID, s: Session = Depends(get_session), ws: Wor
     c = _clip(s, ws, clip_id)
     if c.status == ClipStatus.rejected:
         raise HTTPException(409, "Rejected clips aren't rendered. Approve or restore it first.")
+    if ((v := s.get(Video, c.video_id)) and (v.meta or {}).get("archived")):
+        raise HTTPException(409, ARCHIVED)
     job = enqueue_clip_render(s, c)
     s.commit()
     return {"job_id": str(job.id)}

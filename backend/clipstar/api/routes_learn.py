@@ -110,6 +110,8 @@ def reclip(video_id: uuid.UUID, s: Session = Depends(get_session), ws: Workspace
         raise HTTPException(404, "Video not found.")
     if v.status in (VideoStatus.queued, VideoStatus.processing):
         raise HTTPException(409, "This video is still being processed.")
+    if (v.meta or {}).get("archived"):
+        raise HTTPException(409, "This video was archived to save space (its original file was deleted), so it can't be re-clipped.")
     if s.scalar(select(Asset.id).where(Asset.video_id == v.id, Asset.kind == "transcript")) is None:
         raise HTTPException(409, "This video has no transcript yet. Retry processing it first.")
     v.stage = Stage.moments

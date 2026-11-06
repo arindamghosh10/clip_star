@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import {
   Activity,
@@ -10,6 +10,7 @@ import {
   CalendarDays,
   Film,
   LayoutDashboard,
+  LogOut,
   Menu,
   MessageSquare,
   Scissors,
@@ -22,6 +23,8 @@ import {
 import { api } from "@/lib/api";
 import { StoreProvider, useStore } from "@/lib/store";
 import { usePoll } from "@/lib/usePoll";
+import { AuthProvider, BARE, useAuth } from "./Auth";
+import { NotificationsBell } from "./Notifications";
 import { cx } from "./ui";
 
 const NAV = [
@@ -88,15 +91,52 @@ function Brand() {
   );
 }
 
+const ROLE_LABEL = { owner: "Owner", editor: "Editor", reviewer: "Reviewer", viewer: "Viewer" } as const;
+
 function Workspace() {
   const ws = usePoll(api.workspace, { intervalMs: 60000 });
   const accounts = usePoll(api.accounts, { intervalMs: 60000 });
+  const { state, refresh } = useAuth();
+  const router = useRouter();
+  const user = state?.user;
+  async function signOut() {
+    await api.logout().catch(() => undefined);
+    await refresh();
+    router.replace("/login");
+  }
   return (
-    <div className="rounded-md border border-line p-3 text-sm">
-      <div className="text-xs text-muted">Workspace</div>
-      <div className="truncate font-semibold">{ws.data?.name ?? "…"}</div>
-      <div className="mt-1 text-xs text-muted">{accounts.data ? `${accounts.data.length} account${accounts.data.length === 1 ? "" : "s"} · self-hosted` : "self-hosted"}</div>
+    <div className="flex flex-col gap-2">
+      <div className="rounded-md border border-line p-3 text-sm">
+        <div className="text-xs text-muted">Workspace</div>
+        <div className="truncate font-semibold">{ws.data?.name ?? "…"}</div>
+        <div className="mt-1 text-xs text-muted">{accounts.data ? `${accounts.data.length} account${accounts.data.length === 1 ? "" : "s"} · self-hosted` : "self-hosted"}</div>
+      </div>
+      {user && (
+        <div className="flex items-center gap-2 px-1 text-sm">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-bold text-accent" aria-hidden>
+            {(user.name || user.email).slice(0, 1).toUpperCase()}
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block truncate font-medium">{user.name || user.email}</span>
+            <span className="block text-xs text-muted">{ROLE_LABEL[user.role]}</span>
+          </span>
+          <button onClick={signOut} className="rounded p-1.5 text-muted hover:bg-paper hover:text-ink" aria-label="Sign out" title="Sign out">
+            <LogOut size={16} />
+          </button>
+        </div>
+      )}
     </div>
+  );
+}
+
+function RoleNotice() {
+  const { state } = useAuth();
+  const role = state?.user?.role;
+  if (role !== "viewer" && role !== "reviewer") return null;
+  return (
+    <p className="-mb-2 rounded border border-line bg-paper px-3 py-2 text-xs text-muted">
+      {role === "viewer" ? "You have view-only access. Ask an owner if you need to change things." : "Reviewer access: you can approve clips, batches and replies. Other changes need an editor or owner."}
+    </p>
   );
 }
 
@@ -112,11 +152,27 @@ function Toast() {
 
 function Frame({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const path = usePathname();
+  if (BARE.some((p) => path.startsWith(p))) {
+    return (
+      <main className="flex min-h-screen flex-col items-center px-4 py-10">
+        <div className="mb-8 flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-rec" aria-hidden />
+          <span className="text-lg font-extrabold tracking-tight">clip_star</span>
+        </div>
+        {children}
+        <Toast />
+      </main>
+    );
+  }
   return (
     <div className="flex min-h-screen">
       <aside className="hidden w-60 shrink-0 border-r border-line bg-surface lg:block">
         <div className="sticky top-0 flex h-screen flex-col gap-6 px-3 py-5">
-          <Brand />
+          <div className="flex items-center justify-between">
+            <Brand />
+            <NotificationsBell />
+          </div>
           <Nav />
           <div className="mt-auto">
             <Workspace />
@@ -127,9 +183,12 @@ function Frame({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="sticky top-0 z-30 flex items-center justify-between border-b border-line bg-surface px-4 py-3 lg:hidden">
           <Brand />
-          <button className="rounded p-1.5 hover:bg-paper" onClick={() => setOpen(true)} aria-label="Open menu">
-            <Menu size={20} />
-          </button>
+          <div className="flex items-center gap-1">
+            <NotificationsBell />
+            <button className="rounded p-1.5 hover:bg-paper" onClick={() => setOpen(true)} aria-label="Open menu">
+              <Menu size={20} />
+            </button>
+          </div>
         </div>
         {open && (
           <div className="fixed inset-0 z-40 lg:hidden">
@@ -149,6 +208,7 @@ function Frame({ children }: { children: ReactNode }) {
           </div>
         )}
         <main className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+          <RoleNotice />
           {children}
         </main>
       </div>
@@ -160,7 +220,9 @@ function Frame({ children }: { children: ReactNode }) {
 export function Shell({ children }: { children: ReactNode }) {
   return (
     <StoreProvider>
-      <Frame>{children}</Frame>
+      <AuthProvider>
+        <Frame>{children}</Frame>
+      </AuthProvider>
     </StoreProvider>
   );
 }

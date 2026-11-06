@@ -56,6 +56,30 @@ class Settings(BaseSettings):
     meta_graph_version: str = "v23.0"
     linkedin_version: str = "202608"  # LinkedIn-Version header (YYYYMM); LinkedIn retires versions after ~1 year
     publish_check_seconds: float = 20.0
+
+    # Team sign-in
+    session_days: int = 30
+    cookie_secure: bool = False  # set true when the web app is served over https
+    login_max_failures: int = 5
+    login_lock_minutes: int = 15
+
+    # Email notifications (optional). Without SMTP, notifications only show in the app.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_user: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    smtp_starttls: bool = True
+
+    # Estimated prices for paid engines (USD per million tokens), used for budgets. Check your provider's price list.
+    claude_price_input_per_mtok: float = 4.0
+    claude_price_output_per_mtok: float = 20.0
+
+    # Backups: pg_dump/pg_restore must be installed. Scheduled backups run when backup_dir is set.
+    backup_dir: Path | None = None
+    backup_keep: int = 7
+    pg_dump_bin: str = "pg_dump"
+    pg_restore_bin: str = "pg_restore"
     platform_timeout_seconds: float = 120.0
 
     # faster-whisper (free transcription engine)

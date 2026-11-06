@@ -11,6 +11,7 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 ```
 
 - Design and reliability rules: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Running it day to day (team, email, budgets, disk, backups): [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - **What is planned and what is built:** [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) (kept up to date every phase)
 
 ## Status
@@ -28,6 +29,7 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 | Publish: scheduler (posting hours per time zone, daily caps, spacing, A/B), batches with preview and approval, automation rules, publishers for YouTube, Instagram, Facebook, Threads, TikTok, X, LinkedIn, Pinterest, no double posts | **Working**; real posting needs your developer apps, see [`docs/PLATFORM_SETUP.md`](docs/PLATFORM_SETUP.md) |
 | Videos, Clips, clip editor, Accounts, Publishing, Calendar, Posts, Engines, Settings and Activity screens | **Live** on the backend |
 | Engage, Measure, Learn (Engage, Overview and Analytics screens) | Built; real platforms not yet verified (see docs/PROJECT_STATUS.md) |
+| Setup wizard, team sign-in and roles, notifications (bell + email), budgets for paid engines, storage clean-up, backups | **Working**; see [`docs/OPERATIONS.md`](docs/OPERATIONS.md) |
 
 ## Run with Docker (one command)
 
@@ -35,7 +37,7 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 docker compose up --build
 ```
 
-Open http://localhost:3000. To let Claude pick moments, start with `ANTHROPIC_API_KEY=... docker compose up` and choose Claude under Engines & connectors (API: `PUT /api/engines/moments`). The first transcription downloads the Whisper model (about 500 MB for `small`). Change it with `CLIPSTAR_WHISPER_MODEL=base docker compose up`. Set `CLIPSTAR_API_TOKEN` to require a token on every API call.
+Open http://localhost:3000 and finish the setup wizard right away (it creates the owner account). To let Claude pick moments, start with `ANTHROPIC_API_KEY=... docker compose up` and choose Claude under Engines & connectors (API: `PUT /api/engines/moments`). The first transcription downloads the Whisper model (about 500 MB for `small`). Change it with `CLIPSTAR_WHISPER_MODEL=base docker compose up`. Set `CLIPSTAR_API_TOKEN` for scripts and automation (it also protects the setup wizard).
 
 ## Run for development
 

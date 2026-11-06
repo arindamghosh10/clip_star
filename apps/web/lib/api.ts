@@ -98,6 +98,37 @@ export type WorkspaceSettings = {
   comment_sync_minutes?: number;
 };
 export type ApiWorkspace = { id: string; name: string; settings: WorkspaceSettings };
+export type Role = "owner" | "editor" | "reviewer" | "viewer";
+export type ApiUser = { id: string; email: string; name: string; role: Role; disabled: boolean; pending_invite: boolean; last_login_at: string | null; prefs: { email: boolean; kinds: string[] }; created_at: string | null };
+export type AuthState = { setup_required: boolean; user: ApiUser | null; token_required: boolean; setup_done: boolean; email_enabled: boolean; roles: Record<Role, string> };
+export type ApiNotification = { id: string; kind: string; severity: "info" | "warn" | "error"; title: string; body: string; link: string | null; created_at: string; unread: boolean };
+export type BudgetSummary = {
+  month_start: string;
+  spent_usd: number;
+  limit_usd: number | null;
+  warn_pct: number;
+  remaining_usd: number | null;
+  blocked: boolean;
+  by_engine: { engine: string; stage: string; calls: number; cost_usd: number; input_tokens: number; output_tokens: number }[];
+  prices: { claude_input_per_mtok: number; claude_output_per_mtok: number };
+  note: string;
+};
+export type StoragePolicy = { delete_audio: boolean; rejected_render_days: number | null; archive_after_days: number | null };
+export type StorageUsage = { by_kind: Record<string, number>; total_bytes: number; free_bytes: number; low_disk_gb: number; policy: StoragePolicy };
+export type BackupList = { scheduled: boolean; keep: number; folder: string; items: { name: string; size_bytes: number; created_at: string; media: boolean }[] };
+export const NOTIFY_KINDS: Record<string, string> = {
+  needs_approval: "A batch is waiting for approval",
+  post_problem: "Posts failed or need checking",
+  reconnect: "An account needs reconnecting",
+  video_failed: "A video stopped processing",
+  video_ready: "A video is ready",
+  lead: "Business enquiries in comments",
+  report: "Weekly report",
+  budget: "Paid engine budget",
+  storage: "Low disk space",
+  backup: "Backups",
+};
+
 export type ApiEngine = { id: string; stage: StageId; name: string; kind: "free" | "connector"; description: string; ok: boolean; message: string; selected: boolean; estimate: string | null };
 
 export type ApiClip = {
@@ -275,13 +306,21 @@ export class ApiError extends Error {
   }
 }
 
+/** Fired when the server says nobody is signed in; the shell sends the person to the sign-in page. */
+export const SIGNED_OUT_EVENT = "clipstar:signed-out";
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(API_BASE + path, { ...init, headers: { Accept: "application/json", ...(init?.headers ?? {}) } });
+    res = await fetch(API_BASE + path, {
+      ...init,
+      credentials: "include", // the sign-in cookie
+      headers: { Accept: "application/json", "X-ClipStar": "1", ...(init?.headers ?? {}) },
+    });
   } catch {
     throw new ApiError(0, "Can't reach the clip_star server. Is the backend running?");
   }
+  if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/api/auth/")) window.dispatchEvent(new Event(SIGNED_OUT_EVENT));
   if (res.status === 204) return undefined as T;
   let body: unknown = null;
   try {
@@ -367,6 +406,29 @@ export const api = {
   commentAction: (id: string, action: "skip" | "reopen" | "hide" | "unhide" | "mark-sent") => request<ApiComment>(`/api/comments/${id}/${action}`, json("POST")),
   syncComments: () => request<{ queued: number }>("/api/comments/sync", json("POST")),
   workspace: () => request<ApiWorkspace>("/api/workspace"),
+  authState: () => request<AuthState>("/api/auth/state"),
+  setup: (body: { name: string; email: string; password: string; workspace_name: string }, token?: string) =>
+    request<ApiUser>("/api/auth/setup", { ...json("POST", body), headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) } }),
+  login: (email: string, password: string) => request<ApiUser>("/api/auth/login", json("POST", { email, password })),
+  logout: () => request<{ ok: boolean }>("/api/auth/logout", json("POST")),
+  inviteInfo: (token: string) => request<{ email: string; name: string; role: Role; workspace: string }>(`/api/auth/invite/${encodeURIComponent(token)}`),
+  acceptInvite: (token: string, name: string, password: string) => request<ApiUser>("/api/auth/invite/accept", json("POST", { token, name, password })),
+  me: () => request<{ user: ApiUser | null; role: Role; via: string }>("/api/auth/me"),
+  updateMe: (body: { name?: string; current_password?: string; new_password?: string; email_notifications?: boolean; kinds?: string[] }) => request<ApiUser>("/api/auth/me", json("PATCH", body)),
+  users: () => request<ApiUser[]>("/api/users"),
+  inviteUser: (email: string, name: string, role: Role) => request<ApiUser & { invite_url: string; emailed: boolean }>("/api/users", json("POST", { email, name, role })),
+  reinvite: (id: string) => request<ApiUser & { invite_url: string; emailed: boolean }>(`/api/users/${id}/invite`, json("POST")),
+  updateUser: (id: string, body: { role?: Role; disabled?: boolean; name?: string }) => request<ApiUser>(`/api/users/${id}`, json("PATCH", body)),
+  removeUser: (id: string) => request<void>(`/api/users/${id}`, json("DELETE")),
+  notifications: () => request<{ unread: number; items: ApiNotification[] }>("/api/notifications"),
+  notificationsSeen: () => request<{ ok: boolean }>("/api/notifications/seen", json("POST")),
+  budget: () => request<BudgetSummary>("/api/admin/budget"),
+  setBudget: (monthly_budget_usd: number | null, budget_warn_pct: number) => request<BudgetSummary>("/api/admin/budget", json("PUT", { monthly_budget_usd, budget_warn_pct })),
+  storage: () => request<StorageUsage>("/api/admin/storage"),
+  setStorage: (p: StoragePolicy) => request<StorageUsage>("/api/admin/storage", json("PUT", p)),
+  cleanStorage: () => request<{ job_id: string }>("/api/admin/storage/clean", json("POST")),
+  backups: () => request<BackupList>("/api/admin/backups"),
+  backupNow: (media: boolean) => request<{ job_id: string }>("/api/admin/backups", json("POST", { media })),
   analytics: (days = 7, account_id?: string) => request<AnalyticsOverview>(`/api/analytics/overview?days=${days}${account_id ? `&account_id=${account_id}` : ""}`),
   learn: () => request<LearnView>("/api/analytics/learn"),
   train: () => request<LearnedModel>("/api/learn/train", json("POST")),
@@ -375,7 +437,7 @@ export const api = {
   makeReport: () => request<ApiReport>("/api/reports", json("POST")),
   accountMetrics: (id: string, days = 30) => request<AccountMetricsView>(`/api/accounts/${id}/metrics?days=${days}`),
   reclip: (video_id: string) => request<{ ok: boolean; kept_existing: boolean }>(`/api/videos/${video_id}/reclip`, json("POST")),
-  updateWorkspace: (body: { name?: string; settings?: WorkspaceSettings }) => request<ApiWorkspace>("/api/workspace", json("PATCH", body)),
+  updateWorkspace: (body: { name?: string; settings?: WorkspaceSettings & { setup_done?: boolean } }) => request<ApiWorkspace>("/api/workspace", json("PATCH", body)),
   engines: () => request<ApiEngine[]>("/api/engines"),
   selectEngine: (stage: StageId, engine_id: string) => request<ApiEngine[]>(`/api/engines/${stage}`, json("PUT", { engine_id })),
   rerenderClip: (id: string) => request<{ job_id: string }>(`/api/clips/${id}/render`, json("POST")),
@@ -396,6 +458,8 @@ export function uploadVideo(
     if (opts.captions) form.append("captions", opts.captions);
     if (opts.title) form.append("title", opts.title);
     xhr.open("POST", `${API_BASE}/api/videos`);
+    xhr.withCredentials = true;
+    xhr.setRequestHeader("X-ClipStar", "1");
     xhr.upload.onprogress = (e) => e.lengthComputable && opts.onProgress?.(Math.round((e.loaded / e.total) * 100));
     xhr.onload = () => {
       let body: { detail?: unknown } | ApiVideo | null = null;
@@ -420,6 +484,7 @@ export function uploadVideo(
 export const clipMediaUrl = (id: string, variant: string, key?: string) => `${API_BASE}/api/clips/${id}/media/${variant}${key ? `?v=${key}` : ""}`;
 export const clipCoverUrl = (id: string, variant: string, key?: string) => `${API_BASE}/api/clips/${id}/cover/${variant}${key ? `?v=${key}` : ""}`;
 
+export const backupUrl = (name: string) => `${API_BASE}/api/admin/backups/${encodeURIComponent(name)}`;
 export const proxyUrl = (videoId: string) => `${API_BASE}/api/videos/${videoId}/proxy`;
 
 export const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);

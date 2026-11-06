@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
+import { BackupsCard, NotificationsCard, ProfileCard, StorageCard, TeamCard } from "@/components/AdminSettings";
 import { PlatformApps } from "@/components/PlatformApps";
 import { Button, Card, PageHeader, Toggle, cx } from "@/components/ui";
 import { PLATFORM_RULES, api, type PlatformId, type WorkspaceSettings } from "@/lib/api";
@@ -32,6 +33,9 @@ const DEFAULTS: Required<Omit<WorkspaceSettings, "auto_approve_score">> & { auto
   comment_sync_minutes: 15,
 };
 
+// Only the keys this page edits (workspace settings also hold things like the learned model and budgets).
+const pick = (w: Record<string, unknown>) => Object.fromEntries(Object.keys(DEFAULTS).map((k) => [k, k in w ? w[k] : DEFAULTS[k as keyof typeof DEFAULTS]])) as typeof DEFAULTS;
+
 const list = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);
 
 export default function Settings() {
@@ -46,7 +50,7 @@ export default function Settings() {
     api
       .workspace()
       .then((w) => {
-        const v = { ...DEFAULTS, ...w.settings } as typeof DEFAULTS;
+        const v = pick(w.settings as Record<string, unknown>);
         setSaved(v);
         setF(v);
         setText({ banned: v.banned_topics.join(", "), tags: v.hashtags.map((h) => `#${h}`).join(", ") });
@@ -64,7 +68,7 @@ export default function Settings() {
     setError(null);
     try {
       const w = await api.updateWorkspace({ settings: current });
-      const v = { ...DEFAULTS, ...w.settings } as typeof DEFAULTS;
+      const v = pick(w.settings as Record<string, unknown>);
       setSaved(v);
       setF(v);
       notify("Settings saved. They apply to the next videos you process.");
@@ -170,6 +174,11 @@ export default function Settings() {
           <p className="mt-3 text-xs text-muted">The scheduler and publisher use these for every batch.</p>
         </Card>
         <PlatformApps />
+        <ProfileCard />
+        <NotificationsCard />
+        <TeamCard />
+        <StorageCard />
+        <BackupsCard />
       </div>
     </>
   );

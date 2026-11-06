@@ -34,7 +34,10 @@ def claude_health() -> Health:
 def claude_json(system: str, prompt: str, schema: dict, max_tokens: int = 16000) -> str:
     import anthropic
 
+    from .. import budget
+
     st = get_settings()
+    budget.check("claude")  # over budget -> EngineDeclined -> the free engine takes over
     client = anthropic.Anthropic(api_key=anthropic_key(), timeout=300.0, max_retries=2)
     try:
         resp = client.beta.messages.create(
@@ -60,6 +63,11 @@ def claude_json(system: str, prompt: str, schema: dict, max_tokens: int = 16000)
         if e.status_code >= 500:
             raise RetryableError(str(e), user_message="The Anthropic API had a server error; will retry.") from e
         raise EngineDeclined(f"API error {e.status_code}") from e
+    u = getattr(resp, "usage", None)
+    if u is not None:  # billed even when declined or cut off
+        tin = int((u.input_tokens or 0) + (getattr(u, "cache_creation_input_tokens", 0) or 0) + (getattr(u, "cache_read_input_tokens", 0) or 0))
+        tout = int(u.output_tokens or 0)
+        budget.charge("claude", tin, tout, budget.claude_cost(tin, tout))
     if resp.stop_reason == "refusal":
         raise EngineDeclined("the model declined this request")
     if resp.stop_reason == "max_tokens":

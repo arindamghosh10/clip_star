@@ -443,3 +443,77 @@ class Report(Base):
     data: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     summary: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = _created()
+
+
+# ---------- Phase 9: team, notifications, spending ----------
+
+
+class Role(str, enum.Enum):
+    owner = "owner"  # everything, including team, platform apps, budgets and backups
+    editor = "editor"  # make clips, schedule and publish, change settings
+    reviewer = "reviewer"  # approve clips, batches and replies
+    viewer = "viewer"  # look only
+
+
+class User(Base):
+    __tablename__ = "users"
+    id: Mapped[uuid.UUID] = _uuid()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    email: Mapped[str] = mapped_column(String(320), unique=True)  # stored lower-case
+    name: Mapped[str] = mapped_column(String(200), default="")
+    role: Mapped[Role] = mapped_column(_enum(Role, "role"), default=Role.viewer)
+    password_hash: Mapped[str | None] = mapped_column(String(300))  # None until an invite is accepted
+    invite_hash: Mapped[str | None] = mapped_column(String(128), index=True)
+    invite_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    disabled: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notifications_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # {"email": bool, "kinds": [..]} which notifications to email
+    prefs: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = _created()
+
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+    id: Mapped[uuid.UUID] = _uuid()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(128), unique=True)  # sha256 of the cookie value
+    created_at: Mapped[datetime] = _created()
+    last_seen_at: Mapped[datetime] = _created()
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    user_agent: Mapped[str] = mapped_column(String(300), default="")
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+    id: Mapped[uuid.UUID] = _uuid()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    kind: Mapped[str] = mapped_column(String(40))
+    severity: Mapped[str] = mapped_column(String(10), default="info")  # info | warn | error
+    title: Mapped[str] = mapped_column(String(300))
+    body: Mapped[str] = mapped_column(Text, default="")
+    link: Mapped[str | None] = mapped_column(String(300))
+    dedupe_key: Mapped[str | None] = mapped_column(String(200), unique=True)
+    emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_notifications_ws_created", "workspace_id", "created_at"),)
+
+
+class EngineUsage(Base):
+    """One call to a paid connector, with its estimated cost (for monthly budgets)."""
+
+    __tablename__ = "engine_usage"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    engine: Mapped[str] = mapped_column(String(60))
+    stage: Mapped[str] = mapped_column(String(30))
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    video_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("videos.id", ondelete="SET NULL"))
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_engine_usage_ws_created", "workspace_id", "created_at"),)

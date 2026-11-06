@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from ..config import get_settings
-from . import routes_connect, routes_engage, routes_jobs, routes_learn, routes_misc, routes_publishing, routes_videos
+from . import routes_admin, routes_auth, routes_connect, routes_engage, routes_jobs, routes_learn, routes_misc, routes_publishing, routes_videos
 from .deps import require_token
 
 log = logging.getLogger("clipstar.api")
@@ -17,13 +17,15 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
     allow_methods=["*"],
+    allow_credentials=True,  # sign-in cookie; origins are listed explicitly
     allow_headers=["*"],
 )
 
-# Every route needs the API token (when one is set) except OAuth callbacks and signed media links.
-for r in (routes_videos, routes_jobs, routes_publishing, routes_misc, routes_engage, routes_learn):
+# Every route needs a signed-in user with the right role (or the API token), except sign-in, OAuth callbacks and signed media links.
+for r in (routes_videos, routes_jobs, routes_publishing, routes_misc, routes_engage, routes_learn, routes_auth, routes_admin):
     app.include_router(r.router, dependencies=[Depends(require_token)])
 app.include_router(routes_connect.router)
+app.include_router(routes_auth.public)
 app.include_router(routes_connect.public)
 
 

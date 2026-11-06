@@ -48,3 +48,6 @@ def get_session() -> Iterator[Session]:
         raise
     finally:
         s.close()
+
+
+from . import notify as _notify  # noqa: E402,F401  (registers the notification hook on every session)
