@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --paper: 242 244 246;
+  --surface: 255 255 255;
+  --ink: 20 32 42;
+  --muted: 86 101 115;
+  --line: 211 218 224;
+  --accent: 44 71 207;
+  --accent-soft: 227 232 251;
+  --rec: 217 58 43;
+  --free: 28 127 82;
+  --free-soft: 225 242 233;
+  --paid: 154 101 18;
+  --paid-soft: 246 237 220;
+  --gate: 122 63 184;
+  --gate-soft: 239 230 248;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: 14 21 27;
+    --surface: 21 31 40;
+    --ink: 229 235 240;
+    --muted: 149 164 177;
+    --line: 40 53 65;
+    --accent: 129 150 255;
+    --accent-soft: 29 39 80;
+    --rec: 255 107 87;
+    --free: 86 199 147;
+    --free-soft: 18 48 31;
+    --paid: 226 170 82;
+    --paid-soft: 51 37 13;
+    --gate: 189 147 240;
+    --gate-soft: 42 28 61;
+    color-scheme: dark;
+  }
+}
+
+body {
+  @apply bg-paper text-ink antialiased;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
