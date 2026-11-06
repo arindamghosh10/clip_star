@@ -113,7 +113,7 @@ export function LiveVideo({ id }: { id: string }) {
         title="Pipeline progress"
         actions={<Badge tone={v.status === "ready" ? "free" : v.status === "failed" ? "rec" : running ? "accent" : "neutral"}>{v.status === "ready" ? "Clips ready" : v.status}</Badge>}
       >
-        <PipelineRail current={v.status === "ready" ? undefined : v.stage} doneThrough={v.status === "ready" ? "edit" : undefined} />
+        <PipelineRail current={v.status === "ready" ? undefined : v.stage} doneThrough={v.status === "ready" ? "package" : undefined} />
         {running && (
           <div className="mt-4 flex items-center gap-3 text-sm">
             <span className="text-muted">{v.status === "queued" ? "Waiting for a worker…" : `Running ${v.stage}…`}</span>
@@ -123,7 +123,7 @@ export function LiveVideo({ id }: { id: string }) {
         )}
         {v.status === "ready" && (
           <p className="mt-3 text-sm text-muted">
-            Clips are ready to review. Packaging (per-platform copy) and publishing arrive in the next build phases.
+            Clips, captions and post text are ready to review. Publishing arrives in the next build phase.
           </p>
         )}
       </Card>

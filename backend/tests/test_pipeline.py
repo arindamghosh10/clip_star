@@ -5,7 +5,7 @@ import pytest
 from clipstar.db import session_scope
 from clipstar.engines.captions import parse_captions
 from clipstar.engines.whisper import WhisperEngine
-from clipstar.models import Job, JobStatus, Video, VideoStatus
+from clipstar.models import Job, JobStatus, Stage, Video, VideoStatus
 from clipstar.pipeline import register_all
 from clipstar.worker import Worker
 
@@ -30,7 +30,7 @@ def test_full_ingest_and_understand_with_captions(client, sample_video, sample_s
     v = _upload(client, sample_video, sample_srt)
     assert v["status"] == "queued" and v["active_job_id"]
     ran = drain(Worker("w"))
-    assert ran == 4  # ingest, understand, moments, edit (12 s video: too short for a clip)
+    assert ran == 5  # ingest, understand, moments, edit, package (12 s video: too short for a clip)
 
     v = client.get(f"/api/videos/{v['id']}").json()
     assert v["status"] == "ready", v
@@ -56,7 +56,7 @@ def test_missing_whisper_fails_with_clear_message_then_retry_works(client, sampl
     from clipstar.engines import registry
     from clipstar.engines.base import Health
 
-    monkeypatch.setattr(registry.ENGINES["faster-whisper"], "check", lambda: Health(False, "Not installed."))
+    monkeypatch.setattr(registry.get_engine(Stage.understand, "faster-whisper"), "check", lambda: Health(False, "Not installed."))
     drain(Worker("w"))
     v = client.get(f"/api/videos/{v['id']}").json()
     assert v["status"] == "failed" and v["stage"] == "understand"
@@ -69,7 +69,7 @@ def test_missing_whisper_fails_with_clear_message_then_retry_works(client, sampl
         def transcribe(self, path, **kw):
             return iter([fake_seg]), SimpleNamespace(language="en")
 
-    monkeypatch.setattr(registry.ENGINES["faster-whisper"], "check", lambda: Health(True))
+    monkeypatch.setattr(registry.get_engine(Stage.understand, "faster-whisper"), "check", lambda: Health(True))
     orig = WhisperEngine.transcribe
     monkeypatch.setattr(WhisperEngine, "transcribe", lambda self, ctx, a, d, p: orig(self, ctx, a, d, p, model=FakeModel()))
     assert client.post(f"/api/videos/{v['id']}/retry").status_code == 200

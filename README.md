@@ -22,8 +22,10 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 | Understand: transcript (Whisper or your .srt/.vtt), scene cuts, loud moments | **Working** |
 | Find moments: rules engine (free), Claude (your API key), local model via Ollama | **Working** |
 | Edit: 9:16 render, speaker-following crop or blurred fit, word-by-word captions, hook title, A/B variants, covers | **Working** |
-| Videos, Clips and Activity screens | **Live** on the backend |
-| Package, Publish, Engage, Measure, Learn | Next phases; their screens show sample data |
+| Package: title, caption and hashtags for 8 platforms (templates, Claude or Ollama), limit checks per platform, auto-approve | **Working** |
+| Clip editor: trim on sentences, hooks, caption style, per-platform text, fix a word everywhere | **Working** |
+| Videos, Clips, clip editor, Engines, Settings and Activity screens | **Live** on the backend |
+| Accounts, Publish, Engage, Measure, Learn | Next phases; their screens show sample data |
 
 ## Run with Docker (one command)
 

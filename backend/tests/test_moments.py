@@ -140,7 +140,9 @@ def test_claude_declined_or_unconfigured_falls_back(monkeypatch):
     assert cands[0].engine == "rules" and "API key was rejected" in notes[0]
 
     e2 = ClaudeMomentEngine()
-    monkeypatch.setattr(e2, "_key", lambda: None)
+    import clipstar.engines.llm as llm
+
+    monkeypatch.setattr(llm, "anthropic_key", lambda: None)
     cands, notes = e2.find(Ctx(), sents, Signals(None, []), ST, 61)
     assert cands[0].engine == "rules" and "isn't set up" in notes[0]
 

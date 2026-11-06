@@ -11,10 +11,6 @@ runs instead and the clip notes say so. A temporary API problem retries the job 
 
 from __future__ import annotations
 
-import json
-import os
-
-import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 from ..config import get_settings
@@ -23,6 +19,9 @@ from ..jobs.runtime import JobContext
 from ..models import Stage
 from ..pipeline.moments import Candidate, MomentSettings, Sentence, Signals, _ts, energy_candidates, rules_candidates, score_window
 from .base import EngineInfo, Health
+from .llm import EngineDeclined, claude_health, claude_json, ollama_health, ollama_json
+
+_EngineDeclined = EngineDeclined  # kept for older imports
 
 
 class MomentEngine:
@@ -195,7 +194,7 @@ class AIMomentEngine(MomentEngine):
                 raise  # temporary: let the job retry
             c, n = fallback.find(ctx, sents, sig, st, duration)
             return c, [f"{self.info.name} was unavailable after several tries, so the built-in rules picked the moments.", *n]
-        except _EngineDeclined as e:
+        except EngineDeclined as e:
             c, n = fallback.find(ctx, sents, sig, st, duration)
             return c, [f"{self.info.name}: {e}. The built-in rules picked the moments instead.", *n]
 
@@ -214,10 +213,6 @@ class AIMomentEngine(MomentEngine):
         return to_candidates(result, sents, sig, st, self.info.id)
 
 
-class _EngineDeclined(Exception):
-    """Permanent for this engine (bad key, refusal, bad request): use the fallback."""
-
-
 class ClaudeMomentEngine(AIMomentEngine):
     info = EngineInfo(
         id="claude",
@@ -227,52 +222,14 @@ class ClaudeMomentEngine(AIMomentEngine):
         description="Claude reads the whole transcript and picks the moments, with titles and hooks. Uses your Anthropic API key.",
     )
 
-    def _key(self) -> str | None:
-        return get_settings().anthropic_api_key or os.environ.get("ANTHROPIC_API_KEY")
-
     def check(self) -> Health:
-        if not self._key():
-            return Health(False, "No Anthropic API key. Set CLIPSTAR_ANTHROPIC_API_KEY.")
-        return Health(True, f"Model: {get_settings().claude_model}")
+        return claude_health()
 
     def estimate(self, duration_s: float) -> str | None:
         return "about $0.05 per 10 minutes of video (estimate)"
 
     def call(self, system: str, prompt: str) -> str:
-        import anthropic
-
-        st = get_settings()
-        client = anthropic.Anthropic(api_key=self._key(), timeout=300.0, max_retries=2)
-        try:
-            resp = client.beta.messages.create(
-                model=st.claude_model,
-                max_tokens=16000,
-                betas=["server-side-fallback-2026-07-01"],
-                fallbacks="default",  # if the model declines, the API retries on a fallback model
-                output_config={"effort": st.claude_effort, "format": {"type": "json_schema", "schema": SCHEMA}},
-                system=system,
-                messages=[{"role": "user", "content": prompt}],
-            )
-        except anthropic.AuthenticationError as e:
-            raise _EngineDeclined("the API key was rejected") from e
-        except anthropic.PermissionDeniedError as e:
-            raise _EngineDeclined("the API key doesn't have access to this model") from e
-        except anthropic.BadRequestError as e:
-            raise _EngineDeclined(f"the request was rejected ({e.message[:200]})") from e
-        except anthropic.RateLimitError as e:
-            raise RetryableError(str(e), user_message="Claude rate limit reached; will retry.") from e
-        except anthropic.APIConnectionError as e:
-            raise RetryableError(str(e), user_message="Couldn't reach the Anthropic API; will retry.") from e
-        except anthropic.APIStatusError as e:
-            if e.status_code >= 500:
-                raise RetryableError(str(e), user_message="The Anthropic API had a server error; will retry.") from e
-            raise _EngineDeclined(f"API error {e.status_code}") from e
-        if resp.stop_reason == "refusal":
-            raise _EngineDeclined("the model declined this transcript")
-        if resp.stop_reason == "max_tokens":
-            raise _EngineDeclined("the answer was cut off")
-        text = next((b.text for b in resp.content if b.type == "text"), "")
-        return text
+        return claude_json(system, prompt, SCHEMA)
 
 
 class OllamaMomentEngine(AIMomentEngine):
@@ -285,37 +242,7 @@ class OllamaMomentEngine(AIMomentEngine):
     )
 
     def check(self) -> Health:
-        st = get_settings()
-        try:
-            r = httpx.get(f"{st.ollama_url}/api/tags", timeout=3)
-            names = [m.get("name", "") for m in r.json().get("models", [])]
-        except Exception:
-            return Health(False, f"Ollama isn't reachable at {st.ollama_url}.")
-        if not any(n == st.ollama_model or n.split(":")[0] == st.ollama_model for n in names):
-            return Health(False, f"Model '{st.ollama_model}' isn't pulled. Run: ollama pull {st.ollama_model}")
-        return Health(True, f"Model: {st.ollama_model}")
+        return ollama_health()
 
     def call(self, system: str, prompt: str) -> str:
-        st = get_settings()
-        try:
-            r = httpx.post(
-                f"{st.ollama_url}/api/chat",
-                json={
-                    "model": st.ollama_model,
-                    "stream": False,
-                    "format": SCHEMA,
-                    "options": {"temperature": 0.2, "num_ctx": 32768},
-                    "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
-                },
-                timeout=900,
-            )
-        except httpx.HTTPError as e:
-            raise RetryableError(str(e), user_message="Couldn't reach Ollama; will retry.") from e
-        if r.status_code >= 500:
-            raise RetryableError(r.text[:300], user_message="Ollama had an error; will retry.")
-        if r.status_code >= 400:
-            raise _EngineDeclined(f"Ollama rejected the request ({r.text[:200]})")
-        try:
-            return r.json()["message"]["content"]
-        except (KeyError, ValueError, json.JSONDecodeError) as e:
-            raise _EngineDeclined("Ollama returned an unexpected response") from e
+        return ollama_json(system, prompt, SCHEMA)

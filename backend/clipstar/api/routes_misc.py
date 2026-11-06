@@ -8,13 +8,13 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from ..db import get_session
-from ..engines.registry import ENGINES, chosen_engine_id
+from ..engines.registry import ENGINES, chosen_engine_id, get_engine
 from ..jobs.queue import utcnow
 from ..media import tools_available
 from ..models import Clip, ClipStatus, EngineChoice, Job, JobStatus, Stage, Video, WorkerHeartbeat, Workspace
 from ..storage import get_storage
 from .deps import get_workspace
-from .schemas import ClipOut, ClipPatch, EngineOut, EngineSelect, Health
+from .schemas import ClipOut, ClipPatch, EngineOut, EngineSelect, Health, TranscriptReplace, WorkspacePatch
 
 router = APIRouter(prefix="/api", tags=["system"])
 
@@ -65,6 +65,7 @@ def list_engines(s: Session = Depends(get_session), ws: Workspace = Depends(get_
                 ok=h.ok,
                 message=h.message,
                 selected=chosen_engine_id(s, ws.id, e.info.stage) == e.info.id,
+                estimate=e.estimate(600),
             )
         )
     return out
@@ -72,8 +73,8 @@ def list_engines(s: Session = Depends(get_session), ws: Workspace = Depends(get_
 
 @router.put("/engines/{stage}", response_model=list[EngineOut])
 def select_engine(stage: Stage, body: EngineSelect, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
-    e = ENGINES.get(body.engine_id)
-    if e is None or e.info.stage != stage:
+    e = get_engine(stage, body.engine_id)
+    if e is None:
         raise HTTPException(422, f"'{body.engine_id}' is not an engine for {stage.value}.")
     row = s.get(EngineChoice, (ws.id, stage))
     if row:
@@ -104,16 +105,152 @@ def list_clips(video_id: uuid.UUID | None = None, status: str | None = None, s: 
     return list(s.scalars(q.order_by(Clip.score.desc())))
 
 
+@router.get("/clips/{clip_id}", response_model=ClipOut)
+def get_clip(clip_id: uuid.UUID, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    return _clip(s, ws, clip_id)
+
+
 @router.patch("/clips/{clip_id}", response_model=ClipOut)
 def update_clip(clip_id: uuid.UUID, body: ClipPatch, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
-    c = _clip(s, ws, clip_id)
+    from ..pipeline.package import PLATFORM_RULES, check_copy, normalize_tag
+    from ..pipeline.stages import enqueue_clip_render
+
+    c = s.scalar(select(Clip).join(Video).where(Clip.id == clip_id, Video.workspace_id == ws.id).with_for_update(of=Clip))
+    if c is None:
+        raise HTTPException(404, "Clip not found.")
+    video = s.get(Video, c.video_id)
     data = body.model_dump(exclude_unset=True, by_alias=False)
+    meta = dict(c.meta or {})
+    rerender = False
+
+    if "start_s" in data or "end_s" in data:
+        start = data.pop("start_s", c.start_s)
+        end = data.pop("end_s", c.end_s)
+        dur_total = video.duration_s or end
+        if end > dur_total + 0.05:
+            raise HTTPException(422, f"The clip can't end after the video ({dur_total:.1f}s).")
+        if not 3 <= end - start <= 180:
+            raise HTTPException(422, "A clip must be between 3 and 180 seconds long.")
+        if (round(start, 3), round(end, 3)) != (round(c.start_s, 3), round(c.end_s, 3)):
+            c.start_s, c.end_s = round(start, 3), round(min(end, dur_total), 3)
+            meta["words"] = _words_in(video, c.start_s, c.end_s)
+            meta["trimmed"] = True
+            rerender = True
+
+    if "variants" in data:
+        vs = data.pop("variants")
+        if len({v["id"] for v in vs}) != len(vs):
+            raise HTTPException(422, "Each variant needs a different id.")
+        if vs != list(c.variants or []):
+            c.variants = [{"id": v["id"], "caption_style": v["caption_style"], "hook": v["hook"].strip().upper()} for v in vs]
+            # drop renders of variants that no longer exist
+            meta["renders"] = {k: v for k, v in (meta.get("renders") or {}).items() if k in {x["id"] for x in vs}}
+            rerender = True
+
     if "copy_" in data:
-        c.copy = {**(c.copy or {}), **data.pop("copy_")}
+        new = data.pop("copy_")
+        unknown = [p for p in new if p not in PLATFORM_RULES]
+        if unknown:
+            raise HTTPException(422, f"Unknown platform: {', '.join(unknown)}.")
+        merged = dict(c.copy or {})
+        for p, cp in new.items():
+            base = merged.get(p) if isinstance(merged.get(p), dict) else {}
+            cp = {"title": base.get("title", ""), "caption": base.get("caption", ""), "hashtags": base.get("hashtags", []), **cp}  # unsent fields keep their value
+            tags, seen = [], set()
+            for h in cp["hashtags"]:
+                t = normalize_tag(h)
+                if t and t.lower() not in seen:
+                    seen.add(t.lower())
+                    tags.append(t)
+            merged[p] = {"title": cp["title"].strip(), "caption": cp["caption"].strip(), "hashtags": tags}
+        c.copy = merged
+        meta["copy_edited"] = True
+
     for k, v in data.items():
         setattr(c, k, v)
+    if isinstance(c.copy, dict) and all(isinstance(v, dict) for v in c.copy.values()):
+        meta["preflight"] = check_copy(c.copy, c.end_s - c.start_s)
+    c.meta = meta
+    if rerender and c.status != ClipStatus.rejected:
+        enqueue_clip_render(s, c)
     s.commit()
+    s.refresh(c)
     return c
+
+
+def _words_in(video: Video, start: float, end: float) -> list[dict]:
+    """Caption words for a new clip range, from the video's transcript."""
+    a = s_asset(video.id, "transcript")
+    if a is None:
+        return []
+    tr = get_storage().read_json(a.path)
+    out = []
+    for seg in tr.get("segments", []):
+        for w in seg.get("words") or []:
+            if w["start"] >= start - 0.05 and w["end"] <= end + 0.05:
+                out.append({"start": round(max(0.0, w["start"] - start), 3), "end": round(min(end, w["end"]) - start, 3), "word": w["word"].strip()})
+    return out
+
+
+def s_asset(video_id: uuid.UUID, kind: str):
+    from ..db import session_scope
+    from ..models import Asset
+
+    with session_scope() as s2:
+        return s2.scalar(select(Asset).where(Asset.video_id == video_id, Asset.kind == kind))
+
+
+@router.post("/videos/{video_id}/transcript/replace")
+def replace_in_transcript(video_id: uuid.UUID, body: TranscriptReplace, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """Fix a misheard word everywhere: the transcript and every clip's captions. Changed clips re-render."""
+    import re as _re
+
+    from ..pipeline.stages import enqueue_clip_render
+
+    v = s.get(Video, video_id)
+    if v is None or v.workspace_id != ws.id:
+        raise HTTPException(404, "Video not found.")
+    a = s_asset(v.id, "transcript")
+    if a is None:
+        raise HTTPException(404, "This video has no transcript yet.")
+    flags = 0 if body.match_case else _re.IGNORECASE
+    pat = _re.compile(rf"(?<![\w']){_re.escape(body.find.strip())}(?![\w'])", flags)
+    repl = body.replace.strip()
+
+    def fix(text: str) -> tuple[str, int]:
+        return pat.subn(lambda m: repl, text)
+
+    st = get_storage()
+    tr = st.read_json(a.path)
+    count = 0
+    for seg in tr.get("segments", []):
+        seg["text"], n = fix(seg.get("text", ""))
+        count += n
+        for w in seg.get("words") or []:
+            w["word"], _ = fix(w["word"])
+    clips_changed = 0
+    for c in s.scalars(select(Clip).where(Clip.video_id == v.id).with_for_update()):
+        meta = dict(c.meta or {})
+        changed = False
+        new_words = []
+        for w in meta.get("words", []):
+            nw, n = fix(w["word"])
+            changed |= n > 0
+            new_words.append({**w, "word": nw})
+        title, n = fix(c.title)
+        changed |= n > 0
+        if changed:
+            meta["words"] = new_words
+            c.meta = meta
+            c.title = title or c.title
+            clips_changed += 1
+            if c.status != ClipStatus.rejected:
+                enqueue_clip_render(s, c)
+    if count == 0 and clips_changed == 0:
+        raise HTTPException(404, f'"{body.find}" was not found in the transcript.')
+    st.write_json(a.path, tr)
+    s.commit()
+    return {"replaced": count, "clips_changed": clips_changed}
 
 
 @router.get("/clips/{clip_id}/media/{variant}")
@@ -155,16 +292,19 @@ def get_ws(ws: Workspace = Depends(get_workspace)):
 
 
 @router.patch("/workspace")
-def patch_ws(body: dict, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
-    ws = s.merge(ws)
-    if "name" in body:
-        name = str(body["name"]).strip()
-        if not 1 <= len(name) <= 200:
-            raise HTTPException(422, "Name must be 1-200 characters.")
-        ws.name = name
-    if "settings" in body:
-        if not isinstance(body["settings"], dict):
-            raise HTTPException(422, "settings must be an object.")
-        ws.settings = {**(ws.settings or {}), **body["settings"]}
+def patch_ws(body: WorkspacePatch, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    if body.name is not None:
+        ws.name = body.name.strip()
+    if body.settings is not None:
+        new = {k: (v.value if hasattr(v, "value") else v) for k, v in body.settings.model_dump(exclude_unset=True).items()}
+        if "platforms" in new:
+            new["platforms"] = [getattr(p, "value", p) for p in new["platforms"]]
+        merged = {**(ws.settings or {}), **new}
+        lo, hi = merged.get("clip_min_s", 15), merged.get("clip_max_s", 60)
+        if lo >= hi:
+            raise HTTPException(422, "The shortest clip length must be less than the longest.")
+        if not lo <= merged.get("clip_target_s", lo) <= hi:
+            merged["clip_target_s"] = round((lo + hi) / 2, 1)
+        ws.settings = merged
     s.commit()
     return {"id": str(ws.id), "name": ws.name, "settings": ws.settings}

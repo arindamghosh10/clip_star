@@ -98,7 +98,7 @@ function Workspace() {
 }
 
 // Screens connected to the real backend so far. Everything else still shows sample data.
-const LIVE = ["/videos", "/activity", "/clips"];
+const LIVE = ["/videos", "/activity", "/clips", "/settings", "/engines"];
 
 function SampleNotice() {
   const path = usePathname();
@@ -106,7 +106,7 @@ function SampleNotice() {
   if (path.startsWith("/videos/") ) return null;
   return (
     <p className="-mb-2 rounded border border-paid/30 bg-paid-soft px-3 py-2 text-xs text-paid">
-      Sample data. This screen connects to the backend in a later build phase. Videos, Clips and Activity are live.
+      Sample data. This screen connects to the backend in a later build phase. Videos, Clips, Engines, Settings and Activity are live.
     </p>
   );
 }

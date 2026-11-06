@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..db import session_scope
 from ..engines.captions import CaptionsFileEngine
-from ..engines.registry import ENGINES, chosen_engine_id
+from ..engines.registry import chosen_engine_id, get_engine
 from ..errors import PermanentError
 from ..jobs import queue
 from ..jobs.runtime import Handler, JobContext, register
@@ -24,9 +24,10 @@ from ..storage import get_storage
 from .analysis import audio_energy, detect_scenes
 from .framing import plan_layout
 from .moments import MomentSettings, Signals, build_sentences, clip_words, finalize, make_hook, overlap
+from .package import ClipContext, PackageSettings, finalize_copy
 from .render import RenderSpec, render_clip
 
-PIPELINE: list[Stage] = [Stage.ingest, Stage.understand, Stage.moments, Stage.edit]
+PIPELINE: list[Stage] = [Stage.ingest, Stage.understand, Stage.moments, Stage.edit, Stage.package]
 CLIP_RENDER_KIND = "clip.render"
 JOB_KIND = "pipeline.stage"
 
@@ -144,7 +145,7 @@ def run_understand(ctx: JobContext, video: Video, assets: dict[str, Asset]) -> d
     elif audio and st.exists(audio.path):
         with session_scope() as s:
             engine_id = chosen_engine_id(s, video.workspace_id, Stage.understand) or "faster-whisper"
-        engine = ENGINES.get(engine_id)
+        engine = get_engine(Stage.understand, engine_id)
         if engine is None or not hasattr(engine, "transcribe"):
             raise PermanentError(f"engine {engine_id} unavailable", user_message=f"The transcription engine '{engine_id}' can't transcribe audio. Pick another in Engines & connectors.")
         health = engine.check()
@@ -218,7 +219,7 @@ def run_moments(ctx: JobContext, video: Video, assets: dict[str, Asset]) -> dict
         ws = s.get(Workspace, video.workspace_id)
         st = MomentSettings.from_workspace(ws.settings if ws else {})
         engine_id = chosen_engine_id(s, video.workspace_id, Stage.moments) or "rules"
-    engine = ENGINES.get(engine_id) or ENGINES["rules"]
+    engine = get_engine(Stage.moments, engine_id) or get_engine(Stage.moments, "rules")
     sents = build_sentences(transcript)
     sig = Signals(energy, cuts)
     ctx.progress(5, f"{len(sents)} sentences; finding moments with {engine.info.name}")
@@ -342,7 +343,40 @@ def run_edit(ctx: JobContext, video: Video, assets: dict[str, Asset]) -> dict:
     return {"video": {"meta": {"edit": res}}}
 
 
-STAGE_FUNCS = {Stage.ingest: run_ingest, Stage.understand: run_understand, Stage.moments: run_moments, Stage.edit: run_edit}
+# ---------- stage: package ----------
+
+
+def clip_text(meta: dict) -> str:
+    return " ".join(w["word"] for w in meta.get("words", [])).strip()
+
+
+def run_package(ctx: JobContext, video: Video, assets: dict[str, Asset]) -> dict:
+    with session_scope() as s:
+        ws = s.get(Workspace, video.workspace_id)
+        st = PackageSettings.from_workspace(ws.settings if ws else {})
+        engine_id = chosen_engine_id(s, video.workspace_id, Stage.package) or "templates"
+        clips = [
+            (c.id, c.title, c.hook, dict(c.meta or {}), c.end_s - c.start_s)
+            for c in s.scalars(select(Clip).where(Clip.video_id == video.id, Clip.status != ClipStatus.rejected).order_by(Clip.score.desc()))
+        ]
+    engine = get_engine(Stage.package, engine_id) or get_engine(Stage.package, "templates")
+    out: dict[str, dict] = {}
+    notes: list[str] = []
+    for k, (cid, title, hook, meta, dur) in enumerate(clips):
+        ctx.progress(100 * k / max(1, len(clips)), f"Writing captions for clip {k + 1} of {len(clips)}")
+        if meta.get("copy_edited"):
+            continue  # never overwrite text the creator edited by hand
+        cc = ClipContext(title=title, hook=hook, text=clip_text(meta) or title, duration=dur)
+        raw, n1 = engine.write(ctx, cc, st)
+        copy, pre, n2 = finalize_copy(raw, cc, st)
+        for n in n1 + n2:
+            if n not in notes:
+                notes.append(n)
+        out[str(cid)] = {"copy": copy, "preflight": pre, "engine": engine.info.id}
+    return {"package": out, "auto_approve": st.auto_approve_score, "video": {"meta": {"package": {"engine": engine.info.id, "clips": len(out), "notes": notes}}}}
+
+
+STAGE_FUNCS = {Stage.ingest: run_ingest, Stage.understand: run_understand, Stage.moments: run_moments, Stage.edit: run_edit, Stage.package: run_package}
 
 
 # ---------- job handler ----------
@@ -373,6 +407,8 @@ def _on_success(s: Session, job: Job, result: dict) -> None:
         )
     if "clips" in result:
         _replace_clips(s, video, result["clips"])
+    if "package" in result:
+        _apply_package(s, video, result["package"], result.get("auto_approve"))
     upd = result.get("video", {})
     if upd.get("duration_s") is not None:
         video.duration_s = upd["duration_s"]
@@ -409,6 +445,24 @@ def _replace_clips(s: Session, video: Video, new: list[dict]) -> None:
         if any(overlap(cand, Candidate(-1, -1, k.start_s, k.end_s)) > 0.5 for k in kept):
             continue
         s.add(Clip(video_id=video.id, **d))
+
+
+def _apply_package(s: Session, video: Video, package: dict, auto_approve: int | None) -> None:
+    for cid, p in package.items():
+        c = s.get(Clip, uuid.UUID(cid), with_for_update=True)
+        if c is None or c.video_id != video.id:
+            continue
+        meta = dict(c.meta or {})
+        if meta.get("copy_edited"):
+            continue  # edited while this job ran
+        c.copy = p["copy"]
+        meta["preflight"] = p["preflight"]
+        meta["copy_engine"] = p["engine"]
+        c.meta = meta
+        if auto_approve and c.status == ClipStatus.pending and c.score >= auto_approve:
+            c.status = ClipStatus.approved
+            meta["auto_approved"] = True
+            c.meta = meta
 
 
 def _on_failure(s: Session, job: Job) -> None:

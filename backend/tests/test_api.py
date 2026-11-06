@@ -75,8 +75,10 @@ def test_batch_rejects_unapproved_clips_and_naive_times(client):
 
 def test_clip_update_merges_copy(client):
     clip = _clip(client)
-    r = client.patch(f"/api/clips/{clip}", json={"copy": {"tiktok": "tt"}, "hook": "THE RENT TRAP"})
-    assert r.json()["copy"] == {"instagram": "IG caption", "tiktok": "tt"} and r.json()["hook"] == "THE RENT TRAP"
+    r = client.patch(f"/api/clips/{clip}", json={"copy": {"tiktok": {"caption": "tt", "hashtags": ["rent"]}}, "hook": "THE RENT TRAP"})
+    assert r.status_code == 200, r.text
+    assert r.json()["copy"]["tiktok"] == {"title": "", "caption": "tt", "hashtags": ["rent"]} and r.json()["copy"]["instagram"] == "IG caption"
+    assert r.json()["hook"] == "THE RENT TRAP"
 
 
 def test_engines_selection(client):

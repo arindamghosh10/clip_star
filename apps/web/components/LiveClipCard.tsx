@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { AlertTriangle, Check, RefreshCw, RotateCcw, X } from "lucide-react";
+import { AlertTriangle, Check, Pencil, RefreshCw, RotateCcw, X } from "lucide-react";
 import { api, clipCoverUrl, clipMediaUrl, fmtDuration, type ApiClip } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { Badge, Button, ScoreBadge, cx } from "./ui";
@@ -100,6 +100,17 @@ export function LiveClipCard({ clip, onChange, showVideoLink = false }: { clip: 
           <span className="font-medium">On-screen hook ({variant}): </span>
           {clip.variants.find((v) => v.id === variant)?.hook || "none"}
         </p>
+        {Object.entries(clip.meta.preflight ?? {}).some(([, p]) => p && !p.ok) && (
+          <p className="flex items-start gap-2 rounded bg-paid-soft p-2 text-sm text-paid">
+            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+            Doesn&apos;t fit:{" "}
+            {Object.entries(clip.meta.preflight ?? {})
+              .filter(([, p]) => p && !p.ok)
+              .map(([k]) => k)
+              .join(", ")}
+            . Open the editor to fix.
+          </p>
+        )}
         {error && (
           <p className="flex items-start gap-2 rounded bg-rec/10 p-2 text-sm text-rec">
             <AlertTriangle size={14} className="mt-0.5 shrink-0" /> {error}
@@ -111,6 +122,11 @@ export function LiveClipCard({ clip, onChange, showVideoLink = false }: { clip: 
               <Check size={14} /> Approve
             </Button>
           )}
+          <Link href={`/clips/${clip.id}`}>
+            <Button size="sm">
+              <Pencil size={14} /> Edit
+            </Button>
+          </Link>
           {clip.status === "rejected" ? (
             <Button size="sm" disabled={busy} onClick={() => act(() => api.updateClip(clip.id, { status: "pending" }), "Restored")}>
               <RotateCcw size={14} /> Restore

@@ -18,6 +18,7 @@ export type ApiVideo = {
   meta: {
     probe?: { width: number; height: number; fps: number; has_audio: boolean };
     moments?: { engine: string; count: number; notes: string[] };
+    package?: { engine: string; clips: number; notes: string[] };
     edit?: { rendered: number; failed: number; skipped: number };
     understand?: { transcript_engine: string; language: string | null; words: number; segments: number; words_estimated: boolean; scenes: number; energy_peaks: number; notes: string[] };
   };
@@ -51,6 +52,49 @@ export type ApiJob = {
 export type ClipVariant = { id: string; caption_style: string; hook: string };
 export type ClipRender = { key: string; duration_s: number; size_bytes: number; layout: { mode: "crop" | "fit" | "scale"; face_ratio: number } };
 
+export type PlatformId = "youtube" | "instagram" | "facebook" | "tiktok" | "x" | "linkedin" | "threads" | "pinterest";
+export type PlatformCopy = { title: string; caption: string; hashtags: string[] };
+export type Preflight = { ok: boolean; problems: string[]; chars: number; limit: number };
+
+// Mirrors backend/clipstar/pipeline/package.py PLATFORM_RULES (shown in the editor; the server re-checks).
+export const PLATFORM_RULES: Record<PlatformId, { label: string; needsTitle: boolean; titleMax: number; captionMax: number; hashtagsMax: number; maxDuration: number }> = {
+  youtube: { label: "YouTube Shorts", needsTitle: true, titleMax: 100, captionMax: 5000, hashtagsMax: 3, maxDuration: 180 },
+  instagram: { label: "Instagram Reels", needsTitle: false, titleMax: 0, captionMax: 2200, hashtagsMax: 5, maxDuration: 180 },
+  tiktok: { label: "TikTok", needsTitle: false, titleMax: 0, captionMax: 2200, hashtagsMax: 5, maxDuration: 600 },
+  facebook: { label: "Facebook", needsTitle: false, titleMax: 0, captionMax: 2000, hashtagsMax: 3, maxDuration: 180 },
+  x: { label: "X", needsTitle: false, titleMax: 0, captionMax: 280, hashtagsMax: 2, maxDuration: 140 },
+  linkedin: { label: "LinkedIn", needsTitle: false, titleMax: 0, captionMax: 3000, hashtagsMax: 3, maxDuration: 600 },
+  threads: { label: "Threads", needsTitle: false, titleMax: 0, captionMax: 500, hashtagsMax: 1, maxDuration: 300 },
+  pinterest: { label: "Pinterest", needsTitle: true, titleMax: 100, captionMax: 500, hashtagsMax: 5, maxDuration: 300 },
+};
+
+export function composeCopy(c: PlatformCopy) {
+  const tags = c.hashtags.map((h) => `#${h}`).join(" ");
+  return tags ? `${c.caption.trim()}\n\n${tags}`.trim() : c.caption.trim();
+}
+
+export type WorkspaceSettings = {
+  niche?: string;
+  voice?: string;
+  audience?: string;
+  banned_topics?: string[];
+  hashtags?: string[];
+  cta?: string;
+  clip_min_s?: number;
+  clip_max_s?: number;
+  clip_target_s?: number;
+  max_clips?: number;
+  variants?: 1 | 2;
+  caption_style?: "bold-pop" | "clean";
+  platforms?: PlatformId[];
+  auto_approve_score?: number | null;
+  spacing_minutes?: number;
+  duplicate_warning_accounts?: number;
+  quiet_hours?: boolean;
+};
+export type ApiWorkspace = { id: string; name: string; settings: WorkspaceSettings };
+export type ApiEngine = { id: string; stage: StageId; name: string; kind: "free" | "connector"; description: string; ok: boolean; message: string; selected: boolean; estimate: string | null };
+
 export type ApiClip = {
   id: string;
   video_id: string;
@@ -61,7 +105,7 @@ export type ApiClip = {
   reason: string;
   hook: string;
   status: "pending" | "approved" | "rejected";
-  copy: Record<string, string>;
+  copy: Partial<Record<PlatformId, PlatformCopy>>;
   variants: ClipVariant[];
   engine: string;
   meta: {
@@ -69,6 +113,11 @@ export type ApiClip = {
     heuristic?: number;
     renders?: Record<string, ClipRender>;
     render_errors?: Record<string, string>;
+    words?: { start: number; end: number; word: string }[];
+    preflight?: Partial<Record<PlatformId, Preflight>>;
+    copy_edited?: boolean;
+    copy_engine?: string;
+    auto_approved?: boolean;
   };
   created_at: string;
 };
@@ -157,7 +206,17 @@ export const api = {
     const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
     return request<ApiClip[]>(`/api/clips${q.size ? `?${q}` : ""}`);
   },
-  updateClip: (id: string, body: Partial<Pick<ApiClip, "status" | "title" | "hook">>) => request<ApiClip>(`/api/clips/${id}`, json("PATCH", body)),
+  clip: (id: string) => request<ApiClip>(`/api/clips/${id}`),
+  updateClip: (
+    id: string,
+    body: Partial<Pick<ApiClip, "status" | "title" | "hook" | "start_s" | "end_s" | "variants">> & { copy?: Partial<Record<PlatformId, Partial<PlatformCopy>>> },
+  ) => request<ApiClip>(`/api/clips/${id}`, json("PATCH", body)),
+  replaceInTranscript: (videoId: string, find: string, replace: string) =>
+    request<{ replaced: number; clips_changed: number }>(`/api/videos/${videoId}/transcript/replace`, json("POST", { find, replace })),
+  workspace: () => request<ApiWorkspace>("/api/workspace"),
+  updateWorkspace: (body: { name?: string; settings?: WorkspaceSettings }) => request<ApiWorkspace>("/api/workspace", json("PATCH", body)),
+  engines: () => request<ApiEngine[]>("/api/engines"),
+  selectEngine: (stage: StageId, engine_id: string) => request<ApiEngine[]>(`/api/engines/${stage}`, json("PUT", { engine_id })),
   rerenderClip: (id: string) => request<{ job_id: string }>(`/api/clips/${id}/render`, json("POST")),
   job: (id: string) => request<ApiJob>(`/api/jobs/${id}`),
   retryJob: (id: string) => request<ApiJob>(`/api/jobs/${id}/retry`, json("POST")),
@@ -199,6 +258,8 @@ export function uploadVideo(
 
 export const clipMediaUrl = (id: string, variant: string, key?: string) => `${API_BASE}/api/clips/${id}/media/${variant}${key ? `?v=${key}` : ""}`;
 export const clipCoverUrl = (id: string, variant: string, key?: string) => `${API_BASE}/api/clips/${id}/cover/${variant}${key ? `?v=${key}` : ""}`;
+
+export const proxyUrl = (videoId: string) => `${API_BASE}/api/videos/${videoId}/proxy`;
 
 export const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 

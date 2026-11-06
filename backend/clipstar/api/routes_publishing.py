@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..db import get_session
+from ..pipeline.package import compose
 from ..models import (
     Account,
     Batch,
@@ -145,7 +146,9 @@ def create_batch(body: BatchIn, s: Session = Depends(get_session), ws: Workspace
     t = body.start_at.astimezone(timezone.utc)
     for clip in clips:
         for acc in accounts:
-            s.add(Post(batch_id=b.id, account_id=acc.id, clip_id=clip.id, caption=clip.copy.get(acc.platform.value, clip.title), scheduled_at=t, status=PostStatus.held))
+            c = (clip.copy or {}).get(acc.platform.value)
+            caption = compose(c, acc.platform.value) if isinstance(c, dict) else (c if isinstance(c, str) else clip.title)
+            s.add(Post(batch_id=b.id, account_id=acc.id, clip_id=clip.id, caption=caption, scheduled_at=t, status=PostStatus.held))
             t += timedelta(minutes=body.spacing_minutes)
     s.commit()
     return _batch_out(s, b)

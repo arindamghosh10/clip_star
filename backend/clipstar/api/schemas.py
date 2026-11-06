@@ -7,6 +7,8 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from typing import Annotated, Literal
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..models import (
@@ -81,11 +83,65 @@ class ClipOut(ORM):
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)
 
 
+class PlatformCopy(BaseModel):
+    title: str = Field(default="", max_length=300)
+    caption: str = Field(default="", max_length=6000)
+    hashtags: list[str] = Field(default_factory=list, max_length=30)
+
+
+class VariantIn(BaseModel):
+    id: Literal["A", "B"]
+    caption_style: Literal["bold-pop", "clean"] = "bold-pop"
+    hook: str = Field(default="", max_length=60)
+
+
 class ClipPatch(BaseModel):
     status: ClipStatus | None = None
     title: str | None = Field(default=None, min_length=1, max_length=300)
     hook: str | None = Field(default=None, max_length=200)
-    copy_: dict[str, str] | None = Field(default=None, alias="copy")
+    start_s: float | None = Field(default=None, ge=0)
+    end_s: float | None = Field(default=None, gt=0)
+    variants: list[VariantIn] | None = Field(default=None, min_length=1, max_length=2)
+    copy_: dict[str, PlatformCopy] | None = Field(default=None, alias="copy")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class TranscriptReplace(BaseModel):
+    find: str = Field(min_length=1, max_length=100)
+    replace: str = Field(max_length=100)
+    match_case: bool = False
+
+
+class WorkspaceSettingsIn(BaseModel):
+    """Every key is optional; only the ones sent are changed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    niche: str | None = Field(default=None, max_length=500)
+    voice: str | None = Field(default=None, max_length=500)
+    audience: str | None = Field(default=None, max_length=500)
+    banned_topics: list[Annotated[str, Field(max_length=60)]] | None = Field(default=None, max_length=50)
+    hashtags: list[Annotated[str, Field(max_length=50)]] | None = Field(default=None, max_length=10)
+    cta: str | None = Field(default=None, max_length=150)
+    clip_min_s: float | None = Field(default=None, ge=5, le=170)
+    clip_max_s: float | None = Field(default=None, ge=10, le=180)
+    clip_target_s: float | None = Field(default=None, ge=5, le=180)
+    max_clips: int | None = Field(default=None, ge=1, le=30)
+    variants: Literal[1, 2] | None = None
+    caption_style: Literal["bold-pop", "clean"] | None = None
+    platforms: list[Platform] | None = Field(default=None, min_length=1)
+    auto_approve_score: int | None = Field(default=None, ge=1, le=100)
+    spacing_minutes: int | None = Field(default=None, ge=0, le=1440)
+    duplicate_warning_accounts: int | None = Field(default=None, ge=1, le=500)
+    quiet_hours: bool | None = None
+
+
+class WorkspacePatch(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    settings: WorkspaceSettingsIn | None = None
 
 
 # ---------- accounts ----------
@@ -259,6 +315,7 @@ class EngineOut(BaseModel):
     ok: bool
     message: str
     selected: bool
+    estimate: str | None = None
 
 
 class EngineSelect(BaseModel):

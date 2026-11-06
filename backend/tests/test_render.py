@@ -66,7 +66,7 @@ def _upload(client, video, tmp_path):
 def test_full_pipeline_renders_vertical_clips_with_variants(client, talk_video, tmp_path):
     _settings(client)
     vid = _upload(client, talk_video, tmp_path)
-    assert drain(Worker("w"), limit=10) == 4  # ingest, understand, moments, edit
+    assert drain(Worker("w"), limit=10) == 5  # ingest, understand, moments, edit, package
     v = client.get(f"/api/videos/{vid}").json()
     assert v["status"] == "ready", v
     assert v["meta"]["moments"]["engine"] == "rules"
@@ -145,3 +145,41 @@ def test_ass_captions_highlight_each_word_and_escape_text():
     ass = build_ass(words, 5, "bold-pop", "rent trap", "DejaVu Sans")
     assert ass.count("Style: Cap") == 1 and "RENT TRAP" in ass and "{tell}" not in ass and "(TELL)" in ass
     assert ass.count("Dialogue: 0,") == 4  # one event per word in highlight mode
+
+
+def test_package_and_clip_editing(client, talk_video, tmp_path):
+    _settings(client, variants=1, auto_approve_score=60, platforms=["youtube", "x", "instagram"])
+    vid = _upload(client, talk_video, tmp_path)
+    drain(Worker("w"), limit=10)
+    v = client.get(f"/api/videos/{vid}").json()
+    assert v["status"] == "ready" and v["meta"]["package"]["engine"] == "templates"
+    clip = client.get("/api/clips", params={"video_id": vid}).json()[0]
+    assert set(clip["copy"]) == {"youtube", "x", "instagram"} and all(p["ok"] for p in clip["meta"]["preflight"].values())
+    assert clip["status"] == ("approved" if clip["score"] >= 60 else "pending")
+
+    # trim: words follow the new range and a re-render is queued
+    r = client.patch(f"/api/clips/{clip['id']}", json={"start_s": clip["start_s"] + 3.0, "end_s": clip["end_s"]})
+    assert r.status_code == 200, r.text
+    c2 = r.json()
+    assert c2["meta"]["words"][0]["word"] != clip["meta"]["words"][0]["word"] and c2["meta"]["words"][0]["start"] >= 0
+    jobs = client.get("/api/jobs", params={"video_id": vid, "status": "queued"}).json()
+    assert any(j["kind"] == "clip.render" for j in jobs)
+    assert client.patch(f"/api/clips/{clip['id']}", json={"start_s": 0, "end_s": 1}).status_code == 422
+    assert client.patch(f"/api/clips/{clip['id']}", json={"start_s": 0, "end_s": 999}).status_code == 422
+
+    # variants and copy
+    r = client.patch(f"/api/clips/{clip['id']}", json={"variants": [{"id": "A", "caption_style": "clean", "hook": "the rent trap"}, {"id": "B", "caption_style": "bold-pop", "hook": "x"}]}).json()
+    assert r["variants"][0] == {"id": "A", "caption_style": "clean", "hook": "THE RENT TRAP"}
+    assert client.patch(f"/api/clips/{clip['id']}", json={"variants": [{"id": "A"}, {"id": "A"}]}).status_code == 422
+    r = client.patch(f"/api/clips/{clip['id']}", json={"copy": {"x": {"caption": "a" * 300, "hashtags": ["#Rent", "rent"]}}}).json()
+    assert r["copy"]["x"]["hashtags"] == ["Rent"] and r["meta"]["copy_edited"] and not r["meta"]["preflight"]["x"]["ok"]
+    assert r["copy"]["youtube"]["title"]  # other platforms kept
+    assert client.patch(f"/api/clips/{clip['id']}", json={"copy": {"myspace": {"caption": "x"}}}).status_code == 422
+    drain(Worker("w"))
+
+    # fix a word everywhere
+    r = client.post(f"/api/videos/{vid}/transcript/replace", json={"find": "lease", "replace": "rental contract"})
+    assert r.status_code == 200 and r.json()["replaced"] >= 1, r.text
+    tr = client.get(f"/api/videos/{vid}/transcript").json()
+    assert "rental contract" in " ".join(s["text"] for s in tr["segments"]) and "lease" not in " ".join(s["text"] for s in tr["segments"]).lower()
+    assert client.post(f"/api/videos/{vid}/transcript/replace", json={"find": "zebra", "replace": "x"}).status_code == 404
