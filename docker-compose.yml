@@ -23,6 +23,10 @@ services:
       CLIPSTAR_STORAGE_DIR: /data
       CLIPSTAR_API_TOKEN: ${CLIPSTAR_API_TOKEN:-}
       CLIPSTAR_WHISPER_MODEL: ${CLIPSTAR_WHISPER_MODEL:-small}
+      # Optional: lets the Claude engine pick moments (choose it in Engines & connectors)
+      CLIPSTAR_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Optional: a local Ollama server for the free local-model engine
+      CLIPSTAR_OLLAMA_URL: ${CLIPSTAR_OLLAMA_URL:-http://host.docker.internal:11434}
       CLIPSTAR_CORS_ORIGINS: '["http://localhost:3000"]'
     volumes:
       - media:/data
@@ -35,6 +39,8 @@ services:
     build: ./backend
     command: worker
     environment: *backend-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - media:/data
       - models:/home/clipstar/.cache

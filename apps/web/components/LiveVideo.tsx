@@ -7,6 +7,7 @@ import { AlertTriangle, ChevronLeft, RotateCcw, Square, Trash2 } from "lucide-re
 import { api, fmtBytes, fmtDuration, fmtTime, type Analysis, type ApiVideo, type Transcript } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { usePoll } from "@/lib/usePoll";
+import { LiveClipCard } from "./LiveClipCard";
 import { PipelineRail } from "./PipelineRail";
 import { Badge, Button, Card, EmptyNote, PageHeader, Progress } from "./ui";
 
@@ -110,9 +111,9 @@ export function LiveVideo({ id }: { id: string }) {
 
       <Card
         title="Pipeline progress"
-        actions={<Badge tone={v.status === "ready" ? "free" : v.status === "failed" ? "rec" : running ? "accent" : "neutral"}>{v.status === "ready" ? "Ready for the next phase" : v.status}</Badge>}
+        actions={<Badge tone={v.status === "ready" ? "free" : v.status === "failed" ? "rec" : running ? "accent" : "neutral"}>{v.status === "ready" ? "Clips ready" : v.status}</Badge>}
       >
-        <PipelineRail current={v.status === "ready" ? undefined : v.stage} doneThrough={v.status === "ready" ? "understand" : undefined} />
+        <PipelineRail current={v.status === "ready" ? undefined : v.stage} doneThrough={v.status === "ready" ? "edit" : undefined} />
         {running && (
           <div className="mt-4 flex items-center gap-3 text-sm">
             <span className="text-muted">{v.status === "queued" ? "Waiting for a worker…" : `Running ${v.stage}…`}</span>
@@ -120,15 +121,51 @@ export function LiveVideo({ id }: { id: string }) {
             <span className="tnum font-mono text-xs">{v.progress}%</span>
           </div>
         )}
-        {v.status === "ready" && <p className="mt-3 text-sm text-muted">Ingest and Understand are done. Finding moments and editing clips arrive in the next build phase.</p>}
+        {v.status === "ready" && (
+          <p className="mt-3 text-sm text-muted">
+            Clips are ready to review. Packaging (per-platform copy) and publishing arrive in the next build phases.
+          </p>
+        )}
       </Card>
 
       {u && <Understood v={v} />}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-lg font-semibold">Clips</h2>
-        <EmptyNote>Clips appear here once the Find moments stage is built (next phase).</EmptyNote>
-      </section>
+      <VideoClips v={v} />
     </>
+  );
+}
+
+function VideoClips({ v }: { v: ApiVideo }) {
+  const clips = usePoll(() => api.clips({ video_id: v.id }), {
+    intervalMs: 3000,
+    deps: [v.id, v.status, v.stage],
+    active: (d) => v.status === "processing" || v.status === "queued" || !!d?.some((c) => c.status !== "rejected" && c.variants.some((x) => !c.meta.renders?.[x.id] && !c.meta.render_errors?.[x.id])),
+  });
+  const notes = v.meta.moments?.notes ?? [];
+  const reached = ["moments", "edit"].includes(v.stage) || v.status === "ready";
+  return (
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-semibold">Stages 03–04 · Moments and clips</h2>
+        {v.meta.moments && <span className="text-sm text-muted">Picked by {v.meta.moments.engine} · sorted by score</span>}
+      </div>
+      {notes.map((n) => (
+        <p key={n} className="rounded border border-paid/30 bg-paid-soft px-3 py-2 text-sm text-paid">
+          {n}
+        </p>
+      ))}
+      {clips.error && <p className="text-sm text-rec">{clips.error}</p>}
+      {clips.data?.length ? (
+        clips.data.map((c) => <LiveClipCard key={c.id} clip={c} onChange={(n) => clips.setData((d) => d?.map((x) => (x.id === n.id ? n : x)))} />)
+      ) : (
+        <EmptyNote>
+          {!reached
+            ? "Clips appear here after the Find moments stage."
+            : v.status === "ready"
+              ? "No moments fit the clip length limits. Try a longer video, or change the clip length in Settings."
+              : "Finding moments…"}
+        </EmptyNote>
+      )}
+    </section>
   );
 }
 

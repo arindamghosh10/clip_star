@@ -17,6 +17,8 @@ export type ApiVideo = {
   size_bytes: number;
   meta: {
     probe?: { width: number; height: number; fps: number; has_audio: boolean };
+    moments?: { engine: string; count: number; notes: string[] };
+    edit?: { rendered: number; failed: number; skipped: number };
     understand?: { transcript_engine: string; language: string | null; words: number; segments: number; words_estimated: boolean; scenes: number; energy_peaks: number; notes: string[] };
   };
   error: string | null;
@@ -44,6 +46,31 @@ export type ApiJob = {
   finished_at: string | null;
   result?: Record<string, unknown>;
   events?: { id: number; at: string; type: string; message: string; data: Record<string, unknown> }[];
+};
+
+export type ClipVariant = { id: string; caption_style: string; hook: string };
+export type ClipRender = { key: string; duration_s: number; size_bytes: number; layout: { mode: "crop" | "fit" | "scale"; face_ratio: number } };
+
+export type ApiClip = {
+  id: string;
+  video_id: string;
+  title: string;
+  start_s: number;
+  end_s: number;
+  score: number;
+  reason: string;
+  hook: string;
+  status: "pending" | "approved" | "rejected";
+  copy: Record<string, string>;
+  variants: ClipVariant[];
+  engine: string;
+  meta: {
+    features?: Record<string, number>;
+    heuristic?: number;
+    renders?: Record<string, ClipRender>;
+    render_errors?: Record<string, string>;
+  };
+  created_at: string;
 };
 
 export type ApiHealth = {
@@ -126,6 +153,12 @@ export const api = {
     const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
     return request<ApiJob[]>(`/api/jobs${q.size ? `?${q}` : ""}`);
   },
+  clips: (params: { video_id?: string; status?: ApiClip["status"] } = {}) => {
+    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
+    return request<ApiClip[]>(`/api/clips${q.size ? `?${q}` : ""}`);
+  },
+  updateClip: (id: string, body: Partial<Pick<ApiClip, "status" | "title" | "hook">>) => request<ApiClip>(`/api/clips/${id}`, json("PATCH", body)),
+  rerenderClip: (id: string) => request<{ job_id: string }>(`/api/clips/${id}/render`, json("POST")),
   job: (id: string) => request<ApiJob>(`/api/jobs/${id}`),
   retryJob: (id: string) => request<ApiJob>(`/api/jobs/${id}/retry`, json("POST")),
   cancelJob: (id: string) => request<ApiJob>(`/api/jobs/${id}/cancel`, json("POST")),
@@ -163,6 +196,9 @@ export function uploadVideo(
   });
   return { promise, abort: () => xhr.abort() };
 }
+
+export const clipMediaUrl = (id: string, variant: string, key?: string) => `${API_BASE}/api/clips/${id}/media/${variant}${key ? `?v=${key}` : ""}`;
+export const clipCoverUrl = (id: string, variant: string, key?: string) => `${API_BASE}/api/clips/${id}/cover/${variant}${key ? `?v=${key}` : ""}`;
 
 export const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
 

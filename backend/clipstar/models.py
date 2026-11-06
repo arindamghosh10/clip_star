@@ -179,6 +179,8 @@ class Clip(Base):
     copy: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     variants: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))
     engine: Mapped[str] = mapped_column(String(64), default="")
+    # words (for captions), scoring features, layout, renders per variant, render errors
+    meta: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
     __table_args__ = (

@@ -75,6 +75,7 @@ class ClipOut(ORM):
     copy_: dict = Field(alias="copy", serialization_alias="copy")
     variants: list
     engine: str
+    meta: dict
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True, populate_by_name=True)

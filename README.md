@@ -20,8 +20,10 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 | Durable job engine (retries, crash recovery, cancel, Activity screen) | **Working** |
 | Ingest: upload, probe, 720p preview, audio | **Working** |
 | Understand: transcript (Whisper or your .srt/.vtt), scene cuts, loud moments | **Working** |
-| Videos and Activity screens | **Live** on the backend |
-| Find moments, Edit, Package, Publish, Engage, Measure, Learn | Next phases; their screens show sample data |
+| Find moments: rules engine (free), Claude (your API key), local model via Ollama | **Working** |
+| Edit: 9:16 render, speaker-following crop or blurred fit, word-by-word captions, hook title, A/B variants, covers | **Working** |
+| Videos, Clips and Activity screens | **Live** on the backend |
+| Package, Publish, Engage, Measure, Learn | Next phases; their screens show sample data |
 
 ## Run with Docker (one command)
 
@@ -29,7 +31,7 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 docker compose up --build
 ```
 
-Open http://localhost:3000. The first transcription downloads the Whisper model (about 500 MB for `small`). Change it with `CLIPSTAR_WHISPER_MODEL=base docker compose up`. Set `CLIPSTAR_API_TOKEN` to require a token on every API call.
+Open http://localhost:3000. To let Claude pick moments, start with `ANTHROPIC_API_KEY=... docker compose up` and choose Claude under Engines & connectors (API: `PUT /api/engines/moments`). The first transcription downloads the Whisper model (about 500 MB for `small`). Change it with `CLIPSTAR_WHISPER_MODEL=base docker compose up`. Set `CLIPSTAR_API_TOKEN` to require a token on every API call.
 
 ## Run for development
 

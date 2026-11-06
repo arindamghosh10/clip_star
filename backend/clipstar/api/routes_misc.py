@@ -3,6 +3,7 @@ import uuid
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
@@ -10,7 +11,7 @@ from ..db import get_session
 from ..engines.registry import ENGINES, chosen_engine_id
 from ..jobs.queue import utcnow
 from ..media import tools_available
-from ..models import Clip, EngineChoice, Job, JobStatus, Stage, Video, WorkerHeartbeat, Workspace
+from ..models import Clip, ClipStatus, EngineChoice, Job, JobStatus, Stage, Video, WorkerHeartbeat, Workspace
 from ..storage import get_storage
 from .deps import get_workspace
 from .schemas import ClipOut, ClipPatch, EngineOut, EngineSelect, Health
@@ -113,6 +114,36 @@ def update_clip(clip_id: uuid.UUID, body: ClipPatch, s: Session = Depends(get_se
         setattr(c, k, v)
     s.commit()
     return c
+
+
+@router.get("/clips/{clip_id}/media/{variant}")
+def clip_media(clip_id: uuid.UUID, variant: str, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    return _render_file(_clip(s, ws, clip_id), variant, "path", "video/mp4")
+
+
+@router.get("/clips/{clip_id}/cover/{variant}")
+def clip_cover(clip_id: uuid.UUID, variant: str, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    return _render_file(_clip(s, ws, clip_id), variant, "cover", "image/jpeg")
+
+
+def _render_file(c: Clip, variant: str, field: str, media_type: str):
+    r = ((c.meta or {}).get("renders") or {}).get(variant)
+    st = get_storage()
+    if not r or not r.get(field) or not st.exists(r[field]):
+        raise HTTPException(404, "This clip hasn't been rendered yet.")
+    return FileResponse(st.abs(r[field]), media_type=media_type, headers={"Cache-Control": "private, max-age=60"})
+
+
+@router.post("/clips/{clip_id}/render", status_code=202)
+def rerender_clip(clip_id: uuid.UUID, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    from ..pipeline.stages import enqueue_clip_render
+
+    c = _clip(s, ws, clip_id)
+    if c.status == ClipStatus.rejected:
+        raise HTTPException(409, "Rejected clips aren't rendered. Approve or restore it first.")
+    job = enqueue_clip_render(s, c)
+    s.commit()
+    return {"job_id": str(job.id)}
 
 
 # ---------- workspace settings ----------

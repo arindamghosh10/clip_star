@@ -68,12 +68,21 @@ def probe(path: Path) -> ProbeResult:
     if v is None:
         raise PermanentError("no video stream", user_message="This file has no video track.")
     duration = float(data.get("format", {}).get("duration") or v.get("duration") or 0)
+    width, height = int(v.get("width") or 0), int(v.get("height") or 0)
+    # Phone videos are often stored landscape with a rotation flag; ffmpeg applies it when decoding.
+    rotation = 0
+    for sd in v.get("side_data_list", []) or []:
+        if "rotation" in sd:
+            rotation = int(float(sd["rotation"]))
+    rotation = int(v.get("tags", {}).get("rotate", rotation) or rotation)
+    if abs(rotation) % 180 == 90:
+        width, height = height, width
     if duration <= 0:
         raise PermanentError("zero duration", user_message="This video has no length. It may be damaged.")
     return ProbeResult(
         duration_s=duration,
-        width=int(v.get("width") or 0),
-        height=int(v.get("height") or 0),
+        width=width,
+        height=height,
         fps=round(_fps(v.get("avg_frame_rate") or v.get("r_frame_rate")), 3),
         video_codec=v.get("codec_name", ""),
         has_audio=a is not None,

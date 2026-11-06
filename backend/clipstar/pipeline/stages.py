@@ -19,11 +19,15 @@ from ..errors import PermanentError
 from ..jobs import queue
 from ..jobs.runtime import Handler, JobContext, register
 from ..media import probe, run_ffmpeg
-from ..models import Asset, Job, Stage, Video, VideoStatus
+from ..models import Asset, Clip, ClipStatus, Job, Post, Stage, Video, VideoStatus, Workspace
 from ..storage import get_storage
 from .analysis import audio_energy, detect_scenes
+from .framing import plan_layout
+from .moments import MomentSettings, Signals, build_sentences, clip_words, finalize, make_hook, overlap
+from .render import RenderSpec, render_clip
 
-PIPELINE: list[Stage] = [Stage.ingest, Stage.understand]
+PIPELINE: list[Stage] = [Stage.ingest, Stage.understand, Stage.moments, Stage.edit]
+CLIP_RENDER_KIND = "clip.render"
 JOB_KIND = "pipeline.stage"
 
 
@@ -192,7 +196,153 @@ def run_understand(ctx: JobContext, video: Video, assets: dict[str, Asset]) -> d
     }
 
 
-STAGE_FUNCS = {Stage.ingest: run_ingest, Stage.understand: run_understand}
+# ---------- stage: find moments ----------
+
+
+def _read(assets: dict[str, Asset], kind: str, default=None):
+    a = assets.get(kind)
+    st = get_storage()
+    if a is None or not st.exists(a.path):
+        if default is not None:
+            return default
+        raise PermanentError(f"{kind} missing", user_message=f"The {kind} file is missing. Retry the Understand step.")
+    return st.read_json(a.path)
+
+
+def run_moments(ctx: JobContext, video: Video, assets: dict[str, Asset]) -> dict:
+    transcript = _read(assets, "transcript")
+    cuts = _read(assets, "scenes", {"cuts": []}).get("cuts", [])
+    energy = _read(assets, "energy", {"window_s": 1.0, "values": [], "peaks": []})
+    duration = video.duration_s or transcript.get("duration") or 0.0
+    with session_scope() as s:
+        ws = s.get(Workspace, video.workspace_id)
+        st = MomentSettings.from_workspace(ws.settings if ws else {})
+        engine_id = chosen_engine_id(s, video.workspace_id, Stage.moments) or "rules"
+    engine = ENGINES.get(engine_id) or ENGINES["rules"]
+    sents = build_sentences(transcript)
+    sig = Signals(energy, cuts)
+    ctx.progress(5, f"{len(sents)} sentences; finding moments with {engine.info.name}")
+    cands, notes = engine.find(ctx, sents, sig, st, duration)
+    final, more = finalize(cands, sents, st, duration)
+    notes += more
+    ctx.progress(95, f"{len(final)} moments chosen")
+
+    clips = []
+    for c in final:
+        # small padding so the first and last words aren't clipped, without running into neighbours
+        prev_end = sents[c.start_id - 1].end if c.start_id > 0 else 0.0
+        next_start = sents[c.end_id + 1].start if 0 <= c.end_id < len(sents) - 1 else duration
+        start = max(prev_end, c.start - 0.15, 0.0) if c.start_id >= 0 else c.start
+        end = min(next_start, c.end + 0.4, duration) if c.start_id >= 0 else c.end
+        c.start, c.end = start, end
+        alt = make_hook(sents[c.start_id + 1].text) if 0 <= c.start_id < c.end_id else ""
+        variants = [{"id": "A", "caption_style": st_caption(video), "hook": c.hook}]
+        if st_variants(video) > 1:
+            variants.append({"id": "B", "caption_style": "clean", "hook": alt if alt and alt != c.hook else c.hook})
+        clips.append(
+            {
+                "title": c.title,
+                "start_s": round(start, 3),
+                "end_s": round(end, 3),
+                "score": c.score,
+                "reason": c.reason,
+                "hook": c.hook,
+                "engine": c.engine,
+                "variants": variants,
+                "meta": {"words": clip_words(sents, c), "features": c.features, "heuristic": c.heuristic, "sentences": [c.start_id, c.end_id]},
+            }
+        )
+    return {"clips": clips, "video": {"meta": {"moments": {"engine": engine_id, "count": len(clips), "notes": notes}}}}
+
+
+def _ws_settings(video: Video) -> dict:
+    with session_scope() as s:
+        ws = s.get(Workspace, video.workspace_id)
+        return dict(ws.settings or {}) if ws else {}
+
+
+def st_caption(video: Video) -> str:
+    v = _ws_settings(video).get("caption_style")
+    return v if v in ("bold-pop", "clean") else "bold-pop"
+
+
+def st_variants(video: Video) -> int:
+    v = _ws_settings(video).get("variants", 2)
+    return 2 if v not in (1, 2) else v
+
+
+# ---------- stage: edit (render) ----------
+
+
+def render_clips(ctx: JobContext, video: Video, assets: dict[str, Asset], clip_ids: list[uuid.UUID] | None = None, p0: float = 0, p1: float = 100) -> dict:
+    stg = get_storage()
+    master = assets.get("master")
+    proxy = assets.get("proxy")
+    if master is None or not stg.exists(master.path) or proxy is None or not stg.exists(proxy.path):
+        raise PermanentError("media missing", user_message="The video files are missing. Retry from the Ingest step.")
+    pr = (video.meta or {}).get("probe") or probe(stg.abs(master.path)).as_dict()
+    cuts = _read(assets, "scenes", {"cuts": []}).get("cuts", [])
+    with session_scope() as s:
+        q = select(Clip).where(Clip.video_id == video.id, Clip.status != ClipStatus.rejected)
+        if clip_ids:
+            q = q.where(Clip.id.in_(clip_ids))
+        clips = [(c.id, c.start_s, c.end_s, list(c.variants or []), dict(c.meta or {})) for c in s.scalars(q.order_by(Clip.score.desc()))]
+    jobs = [(cid, a, b, v, meta) for cid, a, b, vs, meta in clips for v in vs]
+    done = failed = skipped = 0
+    layouts: dict = {}  # one framing analysis per clip, shared by its variants
+    for k, (cid, a, b, variant, meta) in enumerate(jobs):
+        ctx.check()
+        base = p0 + (p1 - p0) * k / max(1, len(jobs))
+        span = (p1 - p0) / max(1, len(jobs))
+        if cid not in layouts:
+            layouts[cid] = plan_layout(stg.abs(proxy.path), a, b, cuts, pr["width"], pr["height"])
+        layout = layouts[cid]
+        spec = RenderSpec(start=a, end=b, words=meta.get("words", []), hook=variant.get("hook", ""), caption_style=variant.get("caption_style", "bold-pop"), layout=layout)
+        key = spec.key()
+        vid_rel = stg.rel(video.id, f"clips/{cid}/{variant['id']}.mp4")
+        cov_rel = stg.rel(video.id, f"clips/{cid}/{variant['id']}.jpg")
+        prev = (meta.get("renders") or {}).get(variant["id"])
+        if prev and prev.get("key") == key and stg.exists(vid_rel) and stg.exists(cov_rel):
+            skipped += 1
+            continue
+        ctx.progress(base, f"Rendering clip {k + 1} of {len(jobs)} ({variant['id']}, {layout.mode})")
+        try:
+            info = render_clip(stg.abs(master.path), pr["width"], pr["height"], pr.get("has_audio", True), spec, stg.abs(vid_rel), stg.abs(cov_rel), lambda p: ctx.progress(base + span * p / 100), ctx.check)
+        except PermanentError as e:
+            failed += 1
+            _save_render(cid, variant["id"], None, e.user_message)
+            continue
+        _save_render(cid, variant["id"], {"key": key, "path": vid_rel, "cover": cov_rel, "layout": layout.as_dict(), **info}, None)
+        done += 1
+    if jobs and failed == len(jobs):
+        raise PermanentError("all renders failed", user_message="None of the clips could be rendered. See the clip errors for details.")
+    return {"rendered": done, "failed": failed, "skipped": skipped}
+
+
+def _save_render(clip_id: uuid.UUID, variant: str, render: dict | None, error: str | None) -> None:
+    """Saved right away, so a retry after a crash skips clips that are already rendered."""
+    with session_scope() as s:
+        c = s.get(Clip, clip_id, with_for_update=True)
+        if c is None:
+            return
+        meta = dict(c.meta or {})
+        renders = dict(meta.get("renders") or {})
+        errors = dict(meta.get("render_errors") or {})
+        if render:
+            renders[variant] = render
+            errors.pop(variant, None)
+        else:
+            errors[variant] = error
+        meta["renders"], meta["render_errors"] = renders, errors
+        c.meta = meta
+
+
+def run_edit(ctx: JobContext, video: Video, assets: dict[str, Asset]) -> dict:
+    res = render_clips(ctx, video, assets)
+    return {"video": {"meta": {"edit": res}}}
+
+
+STAGE_FUNCS = {Stage.ingest: run_ingest, Stage.understand: run_understand, Stage.moments: run_moments, Stage.edit: run_edit}
 
 
 # ---------- job handler ----------
@@ -221,6 +371,8 @@ def _on_success(s: Session, job: Job, result: dict) -> None:
                 set_={"path": stmt.excluded.path, "size_bytes": stmt.excluded.size_bytes, "meta": stmt.excluded.meta},
             )
         )
+    if "clips" in result:
+        _replace_clips(s, video, result["clips"])
     upd = result.get("video", {})
     if upd.get("duration_s") is not None:
         video.duration_s = upd["duration_s"]
@@ -239,6 +391,26 @@ def _on_success(s: Session, job: Job, result: dict) -> None:
         video.progress = 100
 
 
+def _replace_clips(s: Session, video: Video, new: list[dict]) -> None:
+    """Re-running Find moments replaces undecided clips; approved/rejected ones and clips in posts stay."""
+    existing = list(s.scalars(select(Clip).where(Clip.video_id == video.id)))
+    used = set(s.scalars(select(Post.clip_id).where(Post.clip_id.in_([c.id for c in existing])))) if existing else set()
+    kept = []
+    for c in existing:
+        if c.status == ClipStatus.pending and c.id not in used:
+            s.delete(c)
+        else:
+            kept.append(c)
+    s.flush()
+    from .moments import Candidate
+
+    for d in new:
+        cand = Candidate(-1, -1, d["start_s"], d["end_s"])
+        if any(overlap(cand, Candidate(-1, -1, k.start_s, k.end_s)) > 0.5 for k in kept):
+            continue
+        s.add(Clip(video_id=video.id, **d))
+
+
 def _on_failure(s: Session, job: Job) -> None:
     video = s.get(Video, job.video_id, with_for_update=True)
     if video is None or video.status == VideoStatus.cancelled:
@@ -247,5 +419,18 @@ def _on_failure(s: Session, job: Job) -> None:
     video.error = job.last_error
 
 
+def _run_clip_render(ctx: JobContext) -> dict:
+    clip_id = uuid.UUID(ctx.payload["clip_id"])
+    if ctx.video_id is None:
+        raise PermanentError("render job without video")
+    video, assets = _load(ctx.video_id)
+    return render_clips(ctx, video, assets, clip_ids=[clip_id])
+
+
+def enqueue_clip_render(s: Session, clip: Clip) -> Job:
+    return queue.enqueue(s, CLIP_RENDER_KIND, {"clip_id": str(clip.id)}, video_id=clip.video_id, dedupe_key=f"clip:{clip.id}:render", priority=50)
+
+
 def register_handlers() -> None:
     register(JOB_KIND, Handler(run=_run, on_success=_on_success, on_failure=_on_failure))
+    register(CLIP_RENDER_KIND, Handler(run=_run_clip_render))

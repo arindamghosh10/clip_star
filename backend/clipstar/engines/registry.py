@@ -8,11 +8,15 @@ from sqlalchemy.orm import Session
 
 from ..models import EngineChoice, Stage
 from .captions import CaptionsFileEngine
+from .moments_engines import ClaudeMomentEngine, OllamaMomentEngine, RulesMomentEngine
 from .whisper import WhisperEngine
 
-ENGINES = {e.info.id: e for e in (WhisperEngine(), CaptionsFileEngine())}
+ENGINES = {
+    e.info.id: e
+    for e in (WhisperEngine(), CaptionsFileEngine(), RulesMomentEngine(), ClaudeMomentEngine(), OllamaMomentEngine())
+}
 
-DEFAULTS: dict[Stage, str] = {Stage.understand: "faster-whisper"}
+DEFAULTS: dict[Stage, str] = {Stage.understand: "faster-whisper", Stage.moments: "rules"}
 
 
 def engines_for(stage: Stage) -> list:

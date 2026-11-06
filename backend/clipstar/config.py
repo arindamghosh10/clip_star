@@ -33,6 +33,18 @@ class Settings(BaseSettings):
     proxy_height: int = 720
     scene_threshold: float = 0.3
 
+    # Find moments: AI engines
+    anthropic_api_key: str | None = None  # falls back to ANTHROPIC_API_KEY
+    claude_model: str = "claude-opus-5-5"
+    claude_effort: str = "medium"  # low | medium | high | xhigh | max
+    ollama_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.1:8b"
+
+    # Edit: rendering
+    render_preset: str = "veryfast"  # x264 speed/quality trade-off
+    render_crf: int = 21
+    caption_font: str = "DejaVu Sans"
+
     # faster-whisper (free transcription engine)
     whisper_model: str = "small"
     whisper_device: str = "auto"  # auto | cpu | cuda
