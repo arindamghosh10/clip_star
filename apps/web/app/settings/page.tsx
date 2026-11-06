@@ -25,6 +25,11 @@ const DEFAULTS: Required<Omit<WorkspaceSettings, "auto_approve_score">> & { auto
   spacing_minutes: 45,
   duplicate_warning_accounts: 5,
   quiet_hours: true,
+  auto_reply_categories: [],
+  auto_hide_spam: false,
+  replies_per_hour: 20,
+  lead_reply: "Thanks for reaching out! The best way to contact me is the link in my bio.",
+  comment_sync_minutes: 15,
 };
 
 const list = (s: string) => s.split(",").map((x) => x.trim()).filter(Boolean);

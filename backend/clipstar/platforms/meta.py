@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from ..config import get_settings
 from ..errors import PermanentError
-from .base import App, Identity, Provider, PublishRequest, PublishResult, Tokens
+from datetime import datetime
+
+from .base import App, Identity, Provider, PublishRequest, PublishResult, RemoteComment, Tokens
 from .http import call, json_of
 from .util import text_matches, url, wait_until
 
@@ -43,7 +45,9 @@ class _FacebookLogin(Provider):
 class Instagram(_FacebookLogin):
     platform = "instagram"
     label = "Instagram"
-    scopes = ["instagram_basic", "instagram_content_publish", "pages_show_list", "pages_read_engagement", "business_management"]
+    scopes = ["instagram_basic", "instagram_content_publish", "instagram_manage_comments", "pages_show_list", "pages_read_engagement", "business_management"]
+    comments_supported = True
+    reply_max_chars = 2200
     docs_url = "https://developers.facebook.com/docs/instagram-platform/content-publishing"
 
     def identities(self, app, tokens):
@@ -51,7 +55,7 @@ class Instagram(_FacebookLogin):
         for p in self._pages(tokens):
             ig = p.get("instagram_business_account")
             if ig and p.get("access_token"):
-                out.append(Identity(remote_id=ig["id"], handle=f"@{ig.get('username') or ig['id']}", tokens=Tokens(p["access_token"]), options={"page_id": p["id"]}))
+                out.append(Identity(remote_id=ig["id"], handle=f"@{ig.get('username') or ig['id']}", tokens=Tokens(p["access_token"], extra={"username": ig.get("username")}), options={"page_id": p["id"]}))
         if not out:
             raise PermanentError("no ig", user_message="No Instagram professional account is linked to the Facebook Pages you shared. Link one in Instagram settings, then connect again.")
         return out
@@ -90,10 +94,39 @@ class Instagram(_FacebookLogin):
         return None
 
 
+def _iso(v):
+    try:
+        return datetime.fromisoformat(v.replace("Z", "+00:00").replace("+0000", "+00:00")) if v else None
+    except ValueError:
+        return None
+
+
+def _ig_comments(self, app, tokens, remote_id, post_remote_id):
+    d = json_of(call("GET", url(f"{graph()}/{post_remote_id}/comments", fields="id,text,username,timestamp", limit="50", access_token=tokens.access_token), label=self.label), self.label)
+    own = (tokens.extra or {}).get("username")
+    return [RemoteComment(c["id"], c.get("username", ""), c.get("text", ""), _iso(c.get("timestamp")), is_own=bool(own) and c.get("username") == own) for c in d.get("data", [])]
+
+
+def _ig_reply(self, app, tokens, remote_id, post_remote_id, comment_remote_id, text):
+    r = call("POST", f"{graph()}/{comment_remote_id}/replies", label=self.label, commit=True, data={"message": text, "access_token": tokens.access_token})
+    return json_of(r, self.label)["id"]
+
+
+def _ig_hide(self, app, tokens, remote_id, comment_remote_id, hidden=True):
+    call("POST", f"{graph()}/{comment_remote_id}", label=self.label, data={"hide": "true" if hidden else "false", "access_token": tokens.access_token})
+
+
+Instagram.list_comments = _ig_comments
+Instagram.reply = _ig_reply
+Instagram.hide = _ig_hide
+
+
 class Facebook(_FacebookLogin):
     platform = "facebook"
     label = "Facebook"
-    scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "business_management"]
+    scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_manage_engagement", "pages_read_user_content", "business_management"]
+    comments_supported = True
+    reply_max_chars = 8000
     docs_url = "https://developers.facebook.com/docs/video-api/guides/reels-publishing"
 
     def identities(self, app, tokens):
@@ -119,13 +152,33 @@ class Facebook(_FacebookLogin):
         return None
 
 
+def _fb_comments(self, app, tokens, remote_id, post_remote_id):
+    d = json_of(call("GET", url(f"{graph()}/{post_remote_id}/comments", fields="id,message,from,created_time", limit="50", access_token=tokens.access_token), label=self.label), self.label)
+    return [RemoteComment(c["id"], (c.get("from") or {}).get("name", ""), c.get("message", ""), _iso(c.get("created_time")), is_own=(c.get("from") or {}).get("id") == remote_id) for c in d.get("data", [])]
+
+
+def _fb_reply(self, app, tokens, remote_id, post_remote_id, comment_remote_id, text):
+    r = call("POST", f"{graph()}/{comment_remote_id}/comments", label=self.label, commit=True, data={"message": text, "access_token": tokens.access_token})
+    return json_of(r, self.label)["id"]
+
+
+def _fb_hide(self, app, tokens, remote_id, comment_remote_id, hidden=True):
+    call("POST", f"{graph()}/{comment_remote_id}", label=self.label, data={"is_hidden": "true" if hidden else "false", "access_token": tokens.access_token})
+
+
+Facebook.list_comments = _fb_comments
+Facebook.reply = _fb_reply
+Facebook.hide = _fb_hide
+
 THREADS = "https://graph.threads.net"
 
 
 class Threads(Provider):
     platform = "threads"
     label = "Threads"
-    scopes = ["threads_basic", "threads_content_publish"]
+    scopes = ["threads_basic", "threads_content_publish", "threads_read_replies", "threads_manage_replies"]
+    comments_supported = True
+    reply_max_chars = 500
     docs_url = "https://developers.facebook.com/docs/threads/posts"
     client_id_label = "Threads App ID"
 
@@ -143,6 +196,7 @@ class Threads(Provider):
 
     def identities(self, app, tokens):
         d = json_of(call("GET", url(f"{THREADS}/v1.0/me", fields="id,username", access_token=tokens.access_token), label=self.label), self.label)
+        tokens.extra = {**(tokens.extra or {}), "username": d.get("username")}  # to recognise our own replies
         return [Identity(remote_id=d["id"], handle=f"@{d.get('username') or d['id']}", tokens=tokens)]
 
     def publish(self, app, tokens, remote_id, req):
@@ -176,3 +230,24 @@ class Threads(Provider):
             if text_matches(t.get("text"), req.caption):
                 return PublishResult(t["id"], t.get("permalink"))
         return None
+
+
+def _th_comments(self, app, tokens, remote_id, post_remote_id):
+    d = json_of(call("GET", url(f"{THREADS}/v1.0/{post_remote_id}/replies", fields="id,text,username,timestamp", access_token=tokens.access_token), label=self.label), self.label)
+    own = (tokens.extra or {}).get("username")
+    return [RemoteComment(c["id"], c.get("username", ""), c.get("text", ""), _iso(c.get("timestamp")), is_own=bool(own) and c.get("username") == own) for c in d.get("data", [])]
+
+
+def _th_reply(self, app, tokens, remote_id, post_remote_id, comment_remote_id, text):
+    tok = tokens.access_token
+    cid = json_of(call("POST", f"{THREADS}/v1.0/{remote_id}/threads", label=self.label, data={"media_type": "TEXT", "text": text, "reply_to_id": comment_remote_id, "access_token": tok}), self.label)["id"]
+    return json_of(call("POST", f"{THREADS}/v1.0/{remote_id}/threads_publish", label=self.label, commit=True, data={"creation_id": cid, "access_token": tok}), self.label)["id"]
+
+
+def _th_hide(self, app, tokens, remote_id, comment_remote_id, hidden=True):
+    call("POST", f"{THREADS}/v1.0/{comment_remote_id}/manage_reply", label=self.label, data={"hide": "true" if hidden else "false", "access_token": tokens.access_token})
+
+
+Threads.list_comments = _th_comments
+Threads.reply = _th_reply
+Threads.hide = _th_hide

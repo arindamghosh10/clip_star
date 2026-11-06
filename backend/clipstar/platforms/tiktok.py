@@ -42,6 +42,7 @@ class TikTok(Provider):
     platform = "tiktok"
     label = "TikTok"
     scopes = ["user.info.basic", "video.publish"]
+    comments_note = "TikTok's posting API doesn't include comments."
     docs_url = "https://developers.tiktok.com/doc/content-posting-api-get-started"
     client_id_label = "Client key"
 

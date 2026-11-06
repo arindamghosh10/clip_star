@@ -23,6 +23,7 @@ class LinkedIn(Provider):
     platform = "linkedin"
     label = "LinkedIn"
     scopes = ["openid", "profile", "w_member_social"]
+    comments_note = "LinkedIn only gives comment access to approved Community Management partners."
     docs_url = "https://learn.microsoft.com/linkedin/marketing/community-management/shares/videos-api"
 
     def _h(self, tokens):

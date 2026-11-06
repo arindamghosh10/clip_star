@@ -135,6 +135,12 @@ class WorkspaceSettingsIn(BaseModel):
     spacing_minutes: int | None = Field(default=None, ge=0, le=1440)
     duplicate_warning_accounts: int | None = Field(default=None, ge=1, le=500)
     quiet_hours: bool | None = None
+    # Engage
+    auto_reply_categories: list[Literal["praise", "lead"]] | None = None
+    auto_hide_spam: bool | None = None
+    replies_per_hour: int | None = Field(default=None, ge=1, le=200)
+    lead_reply: str | None = Field(default=None, max_length=500)
+    comment_sync_minutes: int | None = Field(default=None, ge=5, le=1440)
 
 
 class WorkspacePatch(BaseModel):

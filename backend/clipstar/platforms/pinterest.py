@@ -14,6 +14,7 @@ class Pinterest(Provider):
     platform = "pinterest"
     label = "Pinterest"
     scopes = ["boards:read", "pins:read", "pins:write", "user_accounts:read"]
+    comments_note = "Pinterest's API doesn't include comments."
     docs_url = "https://developers.pinterest.com/docs/api-features/creating-boards-and-pins/"
     client_id_label = "App ID"
 

@@ -91,6 +91,11 @@ export type WorkspaceSettings = {
   spacing_minutes?: number;
   duplicate_warning_accounts?: number;
   quiet_hours?: boolean;
+  auto_reply_categories?: ("praise" | "lead")[];
+  auto_hide_spam?: boolean;
+  replies_per_hour?: number;
+  lead_reply?: string;
+  comment_sync_minutes?: number;
 };
 export type ApiWorkspace = { id: string; name: string; settings: WorkspaceSettings };
 export type ApiEngine = { id: string; stage: StageId; name: string; kind: "free" | "connector"; description: string; ok: boolean; message: string; selected: boolean; estimate: string | null };
@@ -175,6 +180,37 @@ export type ApiBatch = {
 export type BatchBody = { name: string; clip_ids: string[]; account_ids: string[]; groups: string[]; start_at: string; spacing_minutes?: number; variations: "off" | "ab" };
 export type BatchPreview = { posts: { account_id: string; handle: string; platform: PlatformId; timezone: string; clip_id: string; clip: string; variant: string; at: string }[]; warnings: string[]; skipped: string[] };
 export type ApiRule = { id: string; name: string; enabled: boolean; config: { min_score?: number; groups?: string[]; platforms?: PlatformId[]; start_delay_minutes?: number; variations?: "off" | "ab"; spacing_minutes?: number }; created_at: string };
+
+export type CommentCategory = "question" | "lead" | "praise" | "critical" | "spam" | "other";
+export type ApiComment = {
+  id: string;
+  account_id: string;
+  handle: string;
+  platform: PlatformId;
+  practice: boolean;
+  post_id: string | null;
+  clip_title: string | null;
+  author: string;
+  message: string;
+  commented_at: string | null;
+  category: CommentCategory;
+  category_by: string;
+  state: "open" | "done";
+  draft: string;
+  draft_by: string;
+  reply_text: string;
+  reply_status: "none" | "queued" | "sending" | "sent" | "failed" | "unknown";
+  reply_auto: boolean;
+  replied_at: string | null;
+  hidden: boolean;
+  error: string | null;
+  max_chars: number;
+};
+export type CommentSummary = {
+  open: Partial<Record<CommentCategory, number>>;
+  needs_attention: number;
+  accounts: { id: string; handle: string; platform: PlatformId; supported: boolean; note: string | null; synced_at: string | null }[];
+};
 
 export type ApiHealth = {
   ok: boolean;
@@ -290,6 +326,15 @@ export const api = {
   createRule: (body: Omit<ApiRule, "id" | "created_at">) => request<ApiRule>("/api/rules", json("POST", body)),
   updateRule: (id: string, body: Partial<Omit<ApiRule, "id" | "created_at">>) => request<ApiRule>(`/api/rules/${id}`, json("PATCH", body)),
   deleteRule: (id: string) => request<void>(`/api/rules/${id}`, json("DELETE")),
+  comments: (params: { state?: "open" | "done" | "all"; category?: string; account_id?: string } = {}) => {
+    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
+    return request<ApiComment[]>(`/api/comments${q.size ? `?${q}` : ""}`);
+  },
+  commentSummary: () => request<CommentSummary>("/api/comments/summary"),
+  updateComment: (id: string, body: { category?: CommentCategory; draft?: string }) => request<ApiComment>(`/api/comments/${id}`, json("PATCH", body)),
+  sendReply: (id: string, text: string, confirm_resend = false) => request<ApiComment>(`/api/comments/${id}/send`, json("POST", { text, confirm_resend })),
+  commentAction: (id: string, action: "skip" | "reopen" | "hide" | "unhide" | "mark-sent") => request<ApiComment>(`/api/comments/${id}/${action}`, json("POST")),
+  syncComments: () => request<{ queued: number }>("/api/comments/sync", json("POST")),
   workspace: () => request<ApiWorkspace>("/api/workspace"),
   updateWorkspace: (body: { name?: string; settings?: WorkspaceSettings }) => request<ApiWorkspace>("/api/workspace", json("PATCH", body)),
   engines: () => request<ApiEngine[]>("/api/engines"),

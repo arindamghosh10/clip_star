@@ -9,15 +9,40 @@ from __future__ import annotations
 import uuid
 
 from ..errors import PermanentError, RetryableError
-from .base import Ambiguous, AuthExpired, Provider, PublishResult
+from datetime import datetime, timedelta, timezone
+
+from .base import Ambiguous, AuthExpired, Provider, PublishResult, RemoteComment
 
 _failed_once: set[str] = set()
 _ambiguous_created: dict[str, str] = {}  # post id -> remote id "created" despite a timeout
 
 
+SAMPLE_COMMENTS = [
+    ("@priya.k", "Does this work if you rent in the UK?"),
+    ("@jordan_saves", "This is so helpful, thank you!! 🙏"),
+    ("@smallbiz.hq", "Love this. Would you be open to a collab? How do we reach you for business?"),
+    ("@crypto_gainz_99", "DM me to 10x your money 🚀🚀 link in bio"),
+    ("@tom.h", "This is wrong, my landlord can't legally do that."),
+]
+_replies: dict[str, int] = {}
+
+
 class Simulated(Provider):
     platform = "simulated"
     label = "Practice account"
+    comments_supported = True
+    reply_max_chars = 2000
+
+    def list_comments(self, app, tokens, remote_id, post_remote_id):
+        base = datetime.now(timezone.utc) - timedelta(minutes=30)
+        return [RemoteComment(f"{post_remote_id}-c{i}", a, t, base + timedelta(minutes=i)) for i, (a, t) in enumerate(SAMPLE_COMMENTS)]
+
+    def reply(self, app, tokens, remote_id, post_remote_id, comment_remote_id, text):
+        _replies[comment_remote_id] = _replies.get(comment_remote_id, 0) + 1
+        return f"sim-reply-{uuid.uuid4().hex[:8]}"
+
+    def hide(self, app, tokens, remote_id, comment_remote_id, hidden=True):
+        return None
 
     def publish(self, app, tokens, remote_id, req):
         mode = req.account_options.get("simulate")

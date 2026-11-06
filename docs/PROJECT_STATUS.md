@@ -2,7 +2,7 @@
 
 The one place that says **what we plan to build** and **what is built**. Update it at the end of every phase (see "How to update" at the bottom).
 
-**Last updated:** 2026-11-06 · **Current phase:** 6 done, 7 next · **Branch:** `main`
+**Last updated:** 2026-11-06 (Phase 7) · **Current phase:** 7 done, 8 next · **Branch:** `main`
 
 Legend: ✅ built and tested · 🟡 built, not yet verified for real (see notes) · ⬜ planned, not built
 
@@ -33,8 +33,8 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | 4 | Find moments + Edit | ✅ / 🟡 | Rendered 9:16 clips with captions and reasons (AI engines 🟡) |
 | 5 | Package + clip editor | ✅ / 🟡 | Per-platform post text, limit checks, trim/hook/copy editing (AI copy 🟡) |
 | 6 | Accounts + Publish | ✅ / 🟡 | Scheduled posts across accounts, no double posts (real platforms 🟡) |
-| 7 | Engage | ⬜ **next** | Comments synced and sorted; approved replies appear on the platform |
-| 8 | Measure + Learn | ⬜ | Real stats per post/account; weekly insights; per-creator scoring |
+| 7 | Engage | ✅ / 🟡 | Comments synced and sorted; approved replies appear on the platform (real platforms 🟡) |
+| 8 | Measure + Learn | ⬜ **next** | Real stats per post/account; weekly insights; per-creator scoring |
 | 9 | Setup wizard, users/roles, notifications, budgets, storage lifecycle, backups | ⬜ | Fresh install to first published clip without reading code |
 | 10 | Public API, webhooks, clip_star MCP server | ⬜ | External tools and assistants can drive clip_star |
 
@@ -128,17 +128,22 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 ### 07 Engage · 08 Measure · 09 Learn
 | Feature | Status | Notes |
 |---|---|---|
-| Comment sync from own posts, sorting (question/praise/lead/spam) | ⬜ | Phase 7 |
-| AI reply drafts in the creator's voice, approve/auto-send by category, rate limits, hide spam | ⬜ | Phase 7 (own posts only) |
+| Comment sync from own posts every 15 min (or on demand), no duplicates | ✅ / 🟡 | YouTube, Instagram, Facebook, Threads, X; tested with practice accounts and fake platform servers. TikTok, LinkedIn, Pinterest: no comment API for apps |
+| Sorting: question, lead, praise, critical, spam, other (rules; Claude/Ollama) | ✅ / 🟡 | AI engines tested with fake answers |
+| Reply drafts: templates for praise and leads; AI drafts answer only from the clip; no links, banned topics, length checked | ✅ / 🟡 | |
+| Send replies with no double sends (attempt recorded, uncertain = ask), retries, reconnect prompts | ✅ | |
+| Auto-reply (praise, business enquiries only), hourly limit per account, auto-hide spam | ✅ | Applies to new comments |
+| Engage inbox: categories, edit category, edit/send/skip/hide, handled tab | ✅ | |
 | Stats per post at 1 h / 24 h / 3 d / 7 d; account KPIs | ⬜ | Phase 8 |
 | Real Overview and Analytics screens | ⬜ | Phase 8 (sample data today) |
 | Weekly insights, "make more like this", re-clip old videos, per-creator scoring | ⬜ | Phase 8 |
+| Optional research connector for trend/topic ideas (e.g. [agent-reach](https://github.com/Panniantong/agent-reach)) | ⬜ idea | Only its public, no-login sources, opt-in, never on the creator's own logged-in accounts. Its YouTube data uses yt-dlp (against YouTube's terms) and logged-in channels reuse browser cookies, so it stays out of the core pipeline. Official sources (YouTube search API, own comments and stats) come first. |
 
 ### Screens
 | Screen | Data |
 |---|---|
-| Videos, Clips, clip editor, Accounts, account page, Publishing, Calendar, Posts, Engines, Settings, Activity | Live |
-| Overview, Engage, Analytics | Sample data (Phases 7–8) |
+| Videos, Clips, clip editor, Accounts, account page, Publishing, Calendar, Posts, Engage, Engines, Settings, Activity | Live |
+| Overview, Analytics | Sample data (Phase 8) |
 
 ---
 
@@ -147,6 +152,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Item | Why not yet | How to verify |
 |---|---|---|
 | Posting to each platform | Needs your developer apps and real accounts | Follow `PLATFORM_SETUP.md` for one platform, connect one account, post one approved clip |
+| Reading and replying to comments on each platform | Same | After a real post gets comments, press "Check for new comments" on Engage and send one reply |
 | Whisper transcription | Model download blocked in the dev sandbox | Upload a video without captions; check the transcript on the video page |
 | Claude / Ollama engines | No API key or Ollama server in the sandbox | Set the key or start Ollama, select the engine in Engines & connectors, process a video |
 | Face-following crop | Test videos had no people | Process a talking-head video; check the clip framing |
@@ -185,6 +191,8 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | 2026-11-06 | 4 | Find moments (rules, Claude, Ollama) and Edit (9:16, captions, A/B); live Clips screen |
 | 2026-11-06 | 5 | Package (8 platforms, limit checks, auto-approve), clip editor, fix-a-word, live Settings and Engines |
 | 2026-11-06 | 6 | Account connection, 8 publishers, scheduler, no-double-post worker, rules, live Accounts/Publishing/Calendar/Posts, setup guide |
+| 2026-11-06 | — | PROJECT_STATUS.md added; agent-reach reviewed (noted as a possible optional research connector) |
+| 2026-11-06 | 7 | Engage: comment sync (5 platforms + practice), sorting, drafts (rules/Claude/Ollama), safe replies with hourly limits, auto-reply and auto-hide, live Engage screen |
 
 ---
 

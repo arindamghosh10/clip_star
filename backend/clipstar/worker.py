@@ -66,9 +66,11 @@ class Worker:
             if time.monotonic() - last_dispatch > self.settings.publish_check_seconds:
                 last_dispatch = time.monotonic()
                 try:
+                    from .engage.service import dispatch_sync
                     from .publishing.service import dispatch
 
                     dispatch()
+                    dispatch_sync()
                 except Exception:
                     log.exception("publish dispatch failed")
             try:

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from ..errors import PermanentError
-from .base import Identity, Provider, PublishResult, Tokens
+from datetime import datetime
+
+from .base import Identity, Provider, PublishResult, RemoteComment, Tokens
 from .http import call, json_of
 from .util import bearer, text_matches, url, wait_until
 
@@ -14,7 +16,10 @@ CHUNK = 4 * 1024 * 1024
 class X(Provider):
     platform = "x"
     label = "X"
-    scopes = ["tweet.read", "tweet.write", "users.read", "media.write", "offline.access"]
+    scopes = ["tweet.read", "tweet.write", "users.read", "media.write", "offline.access", "tweet.moderate.write"]
+    comments_supported = True
+    comments_note = "Reading replies on X needs an API plan that includes search."
+    reply_max_chars = 280
     docs_url = "https://docs.x.com/x-api/media/quickstart/media-upload-chunked"
 
     def auth_url(self, app, state, redirect_uri, code_challenge):
@@ -69,3 +74,28 @@ class X(Provider):
             if text_matches(t.get("text"), req.caption, 40):
                 return PublishResult(t["id"], None)
         return None
+
+    def list_comments(self, app, tokens, remote_id, post_remote_id):
+        d = json_of(
+            call(
+                "GET",
+                url(f"{API}/tweets/search/recent", query=f"conversation_id:{post_remote_id}", max_results="50", **{"tweet.fields": "author_id,created_at", "expansions": "author_id", "user.fields": "username"}),
+                label=self.label,
+                headers=bearer(tokens),
+            ),
+            self.label,
+        )
+        users = {u["id"]: u.get("username", "") for u in (d.get("includes") or {}).get("users", [])}
+        out = []
+        for t in d.get("data", []) or []:
+            ts = t.get("created_at")
+            when = datetime.fromisoformat(ts.replace("Z", "+00:00")) if ts else None
+            out.append(RemoteComment(t["id"], "@" + users.get(t.get("author_id"), "user"), t.get("text", ""), when, is_own=t.get("author_id") == remote_id))
+        return out
+
+    def reply(self, app, tokens, remote_id, post_remote_id, comment_remote_id, text):
+        d = json_of(call("POST", f"{API}/tweets", label=self.label, commit=True, headers=bearer(tokens), json={"text": text[:280], "reply": {"in_reply_to_tweet_id": comment_remote_id}}), self.label)
+        return d["data"]["id"]
+
+    def hide(self, app, tokens, remote_id, comment_remote_id, hidden=True):
+        call("PUT", f"{API}/tweets/{comment_remote_id}/hidden", label=self.label, headers=bearer(tokens), json={"hidden": hidden})

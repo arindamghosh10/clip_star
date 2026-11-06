@@ -209,6 +209,7 @@ class Account(Base):
     token_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     options: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))  # e.g. Pinterest board
     last_error: Mapped[str | None] = mapped_column(Text)
+    comments_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created()
     __table_args__ = (
         UniqueConstraint("workspace_id", "platform", "handle", name="uq_account_handle"),
@@ -351,3 +352,54 @@ class OAuthState(Base):
     verifier: Mapped[str] = mapped_column(String(128))  # PKCE code verifier
     group_name: Mapped[str] = mapped_column(String(100), default="")
     created_at: Mapped[datetime] = _created()
+
+
+class CommentCategory(str, enum.Enum):
+    question = "question"
+    lead = "lead"
+    praise = "praise"
+    critical = "critical"
+    spam = "spam"
+    other = "other"
+
+
+class ReplyStatus(str, enum.Enum):
+    none = "none"  # nothing sent yet
+    queued = "queued"
+    sending = "sending"
+    sent = "sent"
+    failed = "failed"
+    unknown = "unknown"  # the platform may have posted the reply; never re-sent automatically
+
+
+class Comment(Base):
+    """A comment on one of our own posts."""
+
+    __tablename__ = "comments"
+    id: Mapped[uuid.UUID] = _uuid()
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    post_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("posts.id", ondelete="SET NULL"), index=True)
+    remote_id: Mapped[str] = mapped_column(String(200))
+    author: Mapped[str] = mapped_column(String(200), default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    commented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    category: Mapped[CommentCategory] = mapped_column(_enum(CommentCategory, "comment_category"), default=CommentCategory.other)
+    category_by: Mapped[str] = mapped_column(String(32), default="rules")  # rules | claude | ollama | user
+    # open = waiting for the creator; done = replied/skipped/hidden
+    state: Mapped[str] = mapped_column(String(16), default="open", server_default="open")
+    draft: Mapped[str] = mapped_column(Text, default="")
+    draft_by: Mapped[str] = mapped_column(String(32), default="")
+    reply_text: Mapped[str] = mapped_column(Text, default="")
+    reply_status: Mapped[ReplyStatus] = mapped_column(_enum(ReplyStatus, "reply_status"), default=ReplyStatus.none)
+    reply_remote_id: Mapped[str | None] = mapped_column(String(200))
+    reply_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    reply_auto: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    replied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    hidden: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created()
+    updated_at: Mapped[datetime] = _updated()
+    __table_args__ = (
+        UniqueConstraint("account_id", "remote_id", name="uq_comment_remote"),
+        Index("ix_comments_state", "state", "category"),
+    )

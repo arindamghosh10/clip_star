@@ -40,14 +40,14 @@ const NAV = [
 ];
 
 function useNavCounts() {
-  const { comments } = useStore();
+  const summary = usePoll(api.commentSummary, { intervalMs: 20000 });
   // Clips is live: count real clips waiting for approval (no badge if the API is unreachable).
   const pending = usePoll(() => api.clips({ status: "pending" }), { intervalMs: 15000 });
   const awaiting = usePoll(api.batches, { intervalMs: 15000 });
   return {
     "/clips": pending.data?.length ?? 0,
     "/publishing": awaiting.data?.filter((b) => b.status === "awaiting").length ?? 0,
-    "/engage": comments.filter((c) => c.status === "open" && c.category !== "spam").length,
+    "/engage": Object.entries(summary.data?.open ?? {}).reduce((n, [k, v]) => (k === "spam" ? n : n + (v ?? 0)), 0),
   } as Record<string, number>;
 }
 
@@ -101,7 +101,7 @@ function Workspace() {
 }
 
 // Screens connected to the real backend so far. Everything else still shows sample data.
-const LIVE = ["/videos", "/activity", "/clips", "/settings", "/engines", "/accounts", "/publishing", "/calendar", "/posts"];
+const LIVE = ["/videos", "/activity", "/clips", "/settings", "/engines", "/accounts", "/publishing", "/calendar", "/posts", "/engage"];
 
 function SampleNotice() {
   const path = usePathname();
@@ -109,7 +109,7 @@ function SampleNotice() {
   if (path.startsWith("/videos/") ) return null;
   return (
     <p className="-mb-2 rounded border border-paid/30 bg-paid-soft px-3 py-2 text-xs text-paid">
-      Sample data. This screen connects to the backend in a later build phase. Overview, Engage and Analytics connect in the next phases.
+      Sample data. This screen connects to the backend in a later build phase. Overview and Analytics connect in the next phase.
     </p>
   );
 }

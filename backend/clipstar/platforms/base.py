@@ -15,6 +15,7 @@ import hashlib
 import secrets
 import time
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 from ..errors import ClipstarError
@@ -91,6 +92,15 @@ class PublishResult:
     note: str | None = None  # shown on the post, e.g. "posted privately"
 
 
+@dataclass
+class RemoteComment:
+    remote_id: str
+    author: str
+    text: str
+    created_at: "datetime | None" = None
+    is_own: bool = False  # written by the account itself: skipped
+
+
 def pkce_pair() -> tuple[str, str]:
     verifier = secrets.token_urlsafe(64)[:96]
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
@@ -124,3 +134,18 @@ class Provider:
     def find(self, app: App, tokens: Tokens, remote_id: str, req: PublishRequest, since: float) -> PublishResult | None:
         """Look for a post we may already have created (used after an ambiguous failure). None = not found / can't tell."""
         return None
+
+    # ---- comments (Engage) ----
+    comments_supported: bool = False
+    comments_note: str = "This platform's API doesn't give apps access to comments."
+    reply_max_chars: int = 2000
+
+    def list_comments(self, app: App, tokens: Tokens, remote_id: str, post_remote_id: str) -> list[RemoteComment]:
+        return []
+
+    def reply(self, app: App, tokens: Tokens, remote_id: str, post_remote_id: str, comment_remote_id: str, text: str) -> str:
+        """Post a reply; returns the reply's id. The final call is a commit point (ambiguous on timeout)."""
+        raise NotImplementedError
+
+    def hide(self, app: App, tokens: Tokens, remote_id: str, comment_remote_id: str, hidden: bool = True) -> None:
+        raise NotImplementedError

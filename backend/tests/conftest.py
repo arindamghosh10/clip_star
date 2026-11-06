@@ -39,7 +39,7 @@ def _migrate():
 @pytest.fixture(autouse=True)
 def _clean():
     with get_engine().begin() as c:
-        c.execute(text("TRUNCATE workspaces, videos, assets, clips, accounts, batches, posts, rules, engine_choices, jobs, job_events, workers, platform_apps, oauth_states CASCADE"))
+        c.execute(text("TRUNCATE workspaces, videos, assets, clips, accounts, batches, posts, rules, engine_choices, jobs, job_events, workers, platform_apps, oauth_states, comments CASCADE"))
     yield
 
 

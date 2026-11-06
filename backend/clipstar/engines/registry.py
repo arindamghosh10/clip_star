@@ -14,6 +14,7 @@ from .captions import CaptionsFileEngine
 from .moments_engines import ClaudeMomentEngine, OllamaMomentEngine, RulesMomentEngine
 from .package_engines import ClaudePackageEngine, OllamaPackageEngine, TemplatePackageEngine
 from .whisper import WhisperEngine
+from ..engage.engines import ClaudeEngageEngine, OllamaEngageEngine, RulesEngageEngine
 
 _ALL = (
     WhisperEngine(),
@@ -24,10 +25,13 @@ _ALL = (
     TemplatePackageEngine(),
     ClaudePackageEngine(),
     OllamaPackageEngine(),
+    RulesEngageEngine(),
+    ClaudeEngageEngine(),
+    OllamaEngageEngine(),
 )
 ENGINES: dict[tuple[Stage, str], object] = {(e.info.stage, e.info.id): e for e in _ALL}
 
-DEFAULTS: dict[Stage, str] = {Stage.understand: "faster-whisper", Stage.moments: "rules", Stage.package: "templates"}
+DEFAULTS: dict[Stage, str] = {Stage.understand: "faster-whisper", Stage.moments: "rules", Stage.package: "templates", Stage.engage: "rules"}
 
 
 def get_engine(stage: Stage, engine_id: str):

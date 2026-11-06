@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from ..errors import PermanentError
-from .base import App, Identity, Provider, PublishRequest, PublishResult, Tokens
+from datetime import datetime
+
+from .base import App, Identity, Provider, PublishRequest, PublishResult, RemoteComment, Tokens
 from .http import call, json_of
 from .util import bearer, text_matches, url
 
@@ -16,7 +18,13 @@ UPLOAD = "https://www.googleapis.com/upload/youtube/v3/videos"
 class YouTube(Provider):
     platform = "youtube"
     label = "YouTube"
-    scopes = ["https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.readonly"]
+    scopes = [
+        "https://www.googleapis.com/auth/youtube.upload",
+        "https://www.googleapis.com/auth/youtube.readonly",
+        "https://www.googleapis.com/auth/youtube.force-ssl",  # read and reply to comments, moderate
+    ]
+    comments_supported = True
+    reply_max_chars = 10000
     docs_url = "https://developers.google.com/youtube/v3/guides/uploading_a_video"
 
     def auth_url(self, app, state, redirect_uri, code_challenge):
@@ -79,4 +87,28 @@ class YouTube(Provider):
                 vid = sn.get("resourceId", {}).get("videoId")
                 if vid:
                     return PublishResult(vid, f"https://www.youtube.com/shorts/{vid}")
+        return None
+
+    def list_comments(self, app, tokens, remote_id, post_remote_id):
+        d = json_of(call("GET", url(f"{API}/commentThreads", part="snippet", videoId=post_remote_id, order="time", maxResults="50", textFormat="plainText"), label=self.label, headers=bearer(tokens)), self.label)
+        out = []
+        for t in d.get("items", []):
+            top = t.get("snippet", {}).get("topLevelComment", {})
+            sn = top.get("snippet", {})
+            ch = (sn.get("authorChannelId") or {}).get("value")
+            out.append(RemoteComment(top.get("id") or t["id"], sn.get("authorDisplayName", ""), sn.get("textDisplay") or sn.get("textOriginal", ""), _ts(sn.get("publishedAt")), is_own=ch == remote_id))
+        return out
+
+    def reply(self, app, tokens, remote_id, post_remote_id, comment_remote_id, text):
+        r = call("POST", url(f"{API}/comments", part="snippet"), label=self.label, commit=True, headers=bearer(tokens), json={"snippet": {"parentId": comment_remote_id, "textOriginal": text}})
+        return json_of(r, self.label)["id"]
+
+    def hide(self, app, tokens, remote_id, comment_remote_id, hidden=True):
+        call("POST", url(f"{API}/comments/setModerationStatus", id=comment_remote_id, moderationStatus="heldForReview" if hidden else "published"), label=self.label, headers=bearer(tokens))
+
+
+def _ts(v):
+    try:
+        return datetime.fromisoformat(v.replace("Z", "+00:00")) if v else None
+    except ValueError:
         return None
