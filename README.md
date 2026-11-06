@@ -24,8 +24,10 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 | Edit: 9:16 render, speaker-following crop or blurred fit, word-by-word captions, hook title, A/B variants, covers | **Working** |
 | Package: title, caption and hashtags for 8 platforms (templates, Claude or Ollama), limit checks per platform, auto-approve | **Working** |
 | Clip editor: trim on sentences, hooks, caption style, per-platform text, fix a word everywhere | **Working** |
-| Videos, Clips, clip editor, Engines, Settings and Activity screens | **Live** on the backend |
-| Accounts, Publish, Engage, Measure, Learn | Next phases; their screens show sample data |
+| Accounts: connect through each platform's login (encrypted tokens, refresh, reconnect prompts) or practice accounts | **Working** |
+| Publish: scheduler (posting hours per time zone, daily caps, spacing, A/B), batches with preview and approval, automation rules, publishers for YouTube, Instagram, Facebook, Threads, TikTok, X, LinkedIn, Pinterest, no double posts | **Working**; real posting needs your developer apps, see [`docs/PLATFORM_SETUP.md`](docs/PLATFORM_SETUP.md) |
+| Videos, Clips, clip editor, Accounts, Publishing, Calendar, Posts, Engines, Settings and Activity screens | **Live** on the backend |
+| Engage, Measure, Learn (Overview, Engage and Analytics screens) | Next phases; those screens show sample data |
 
 ## Run with Docker (one command)
 

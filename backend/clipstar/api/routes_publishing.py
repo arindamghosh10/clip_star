@@ -52,6 +52,26 @@ def list_accounts(platform: Platform | None = None, group: str | None = None, s:
     return list(s.scalars(q.order_by(Account.platform, Account.handle)))
 
 
+@router.get("/accounts/stats")
+def account_stats(s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """Per account: posts published in the last 24 h, waiting, failed/unconfirmed, total published, next post time."""
+    day_ago = datetime.now(timezone.utc) - timedelta(hours=24)
+    rows = s.execute(
+        select(
+            Post.account_id,
+            func.count().filter(Post.status == PostStatus.published, Post.published_at >= day_ago),
+            func.count().filter(Post.status.in_([PostStatus.scheduled, PostStatus.held])),
+            func.count().filter(Post.status.in_([PostStatus.failed, PostStatus.unknown])),
+            func.count().filter(Post.status == PostStatus.published),
+            func.min(Post.scheduled_at).filter(Post.status == PostStatus.scheduled),
+        )
+        .join(Account, Account.id == Post.account_id)
+        .where(Account.workspace_id == ws.id)
+        .group_by(Post.account_id)
+    )
+    return {str(r[0]): {"posted_24h": r[1], "waiting": r[2], "problems": r[3], "published": r[4], "next_at": r[5].isoformat() if r[5] else None} for r in rows}
+
+
 @router.post("/accounts", response_model=AccountOut, status_code=201)
 def create_account(body: AccountIn, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
     a = Account(workspace_id=ws.id, **body.model_dump())

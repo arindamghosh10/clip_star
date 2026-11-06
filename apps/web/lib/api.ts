@@ -122,6 +122,60 @@ export type ApiClip = {
   created_at: string;
 };
 
+export type ApiAccount = {
+  id: string;
+  platform: PlatformId;
+  handle: string;
+  group_name: string;
+  status: "connected" | "reconnect" | "paused" | "disconnected";
+  timezone: string;
+  language: string;
+  daily_cap: number;
+  posting_start: string;
+  posting_end: string;
+  connection: "oauth" | "simulated";
+  remote_id: string | null;
+  token_expires_at: string | null;
+  options: { board_id?: string; boards?: { id: string; name: string }[]; privacy?: string; simulate?: string; username?: string };
+  last_error: string | null;
+  created_at: string;
+};
+export type AccountStats = Record<string, { posted_24h: number; waiting: number; problems: number; published: number; next_at: string | null }>;
+export type ApiPlatformApp = { platform: PlatformId; label: string; configured: boolean; client_id: string | null; client_id_label: string; redirect_uri: string; scopes: string[]; docs_url: string };
+export type PostStatus = "held" | "scheduled" | "publishing" | "published" | "failed" | "unknown" | "cancelled";
+export type ApiPost = {
+  id: string;
+  batch_id: string;
+  account_id: string;
+  clip_id: string;
+  variant: string;
+  caption: string;
+  scheduled_at: string;
+  status: PostStatus;
+  remote_id: string | null;
+  remote_url: string | null;
+  attempts: number;
+  last_error: string | null;
+  published_at: string | null;
+};
+export type ApiBatch = {
+  id: string;
+  name: string;
+  origin: string;
+  warnings: string[];
+  status: "awaiting" | "running" | "disabled" | "finished" | "cancelled";
+  variations: string;
+  approved_at: string | null;
+  created_at: string;
+  posts: number;
+  posted: number;
+  accounts: number;
+  clips: number;
+};
+export type BatchBody = { name: string; clip_ids: string[]; account_ids: string[]; groups: string[]; start_at: string; spacing_minutes?: number; variations: "off" | "ab" };
+export type BatchPreview = { posts: { account_id: string; handle: string; platform: PlatformId; timezone: string; clip_id: string; clip: string; variant: string; at: string }[]; warnings: string[]; skipped: string[] };
+export type ApiRule = { id: string; name: string; enabled: boolean; config: { min_score?: number; groups?: string[]; platforms?: PlatformId[]; start_delay_minutes?: number; variations?: "off" | "ab"; spacing_minutes?: number }; created_at: string };
+
 export type ApiHealth = {
   ok: boolean;
   database: boolean;
@@ -213,6 +267,29 @@ export const api = {
   ) => request<ApiClip>(`/api/clips/${id}`, json("PATCH", body)),
   replaceInTranscript: (videoId: string, find: string, replace: string) =>
     request<{ replaced: number; clips_changed: number }>(`/api/videos/${videoId}/transcript/replace`, json("POST", { find, replace })),
+  accounts: () => request<ApiAccount[]>("/api/accounts"),
+  accountStats: () => request<AccountStats>("/api/accounts/stats"),
+  createAccount: (body: Partial<ApiAccount> & { platform: PlatformId; handle: string }) => request<ApiAccount>("/api/accounts", json("POST", body)),
+  updateAccount: (id: string, body: Partial<Omit<ApiAccount, "options">> & { options?: Partial<Pick<ApiAccount["options"], "board_id" | "privacy" | "simulate">> }) =>
+    request<ApiAccount>(`/api/accounts/${id}`, json("PATCH", body)),
+  deleteAccount: (id: string) => request<void>(`/api/accounts/${id}`, json("DELETE")),
+  platforms: () => request<ApiPlatformApp[]>("/api/platforms"),
+  savePlatformApp: (platform: PlatformId, client_id: string, client_secret: string) => request<{ ok: boolean }>(`/api/platforms/${platform}/app`, json("PUT", { client_id, client_secret })),
+  deletePlatformApp: (platform: PlatformId) => request<void>(`/api/platforms/${platform}/app`, json("DELETE")),
+  startConnect: (platform: PlatformId, group_name: string) => request<{ authorize_url: string }>(`/api/connect/${platform}/start`, json("POST", { group_name })),
+  batches: () => request<ApiBatch[]>("/api/batches"),
+  previewBatch: (body: BatchBody) => request<BatchPreview>("/api/batches/preview", json("POST", body)),
+  createBatch: (body: BatchBody) => request<ApiBatch>("/api/batches", json("POST", body)),
+  batchAction: (id: string, action: "approve" | "disable" | "enable" | "cancel") => request<ApiBatch>(`/api/batches/${id}/${action}`, json("POST")),
+  posts: (params: { account_id?: string; platform?: string; group?: string; clip_id?: string; batch_id?: string; status?: string; limit?: number } = {}) => {
+    const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== "" && v !== "all").map(([k, v]) => [k, String(v)]));
+    return request<ApiPost[]>(`/api/posts${q.size ? `?${q}` : ""}`);
+  },
+  postAction: (id: string, action: "retry" | "cancel" | "mark-published") => request<ApiPost>(`/api/posts/${id}/${action}`, json("POST")),
+  rules: () => request<ApiRule[]>("/api/rules"),
+  createRule: (body: Omit<ApiRule, "id" | "created_at">) => request<ApiRule>("/api/rules", json("POST", body)),
+  updateRule: (id: string, body: Partial<Omit<ApiRule, "id" | "created_at">>) => request<ApiRule>(`/api/rules/${id}`, json("PATCH", body)),
+  deleteRule: (id: string) => request<void>(`/api/rules/${id}`, json("DELETE")),
   workspace: () => request<ApiWorkspace>("/api/workspace"),
   updateWorkspace: (body: { name?: string; settings?: WorkspaceSettings }) => request<ApiWorkspace>("/api/workspace", json("PATCH", body)),
   engines: () => request<ApiEngine[]>("/api/engines"),

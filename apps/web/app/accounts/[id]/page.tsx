@@ -4,7 +4,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
+import { LiveAccount } from "@/components/LiveAccount";
 import { PostsTable } from "@/components/PostsTable";
+import { isUuid } from "@/lib/api";
 import { Badge, Card, Dot, PageHeader, PlatformBadge, Stat, Tabs, Toggle } from "@/components/ui";
 import { PLATFORMS, POSTS, accountKpis } from "@/lib/data";
 import { useStore } from "@/lib/store";
@@ -30,8 +32,12 @@ function Sparkline({ data }: { data: number[] }) {
   );
 }
 
-export default function AccountDetail() {
+export default function AccountPage() {
   const { id } = useParams<{ id: string }>();
+  return isUuid(id) ? <LiveAccount id={id} /> : <SampleAccount id={id} />;
+}
+
+function SampleAccount({ id }: { id: string }) {
   const { accounts, toggleAccountPaused, notify } = useStore();
   const [tab, setTab] = useState<"all" | "posted" | "upcoming">("all");
   const a = accounts.find((x) => x.id === id);

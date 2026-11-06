@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
+import { PlatformApps } from "@/components/PlatformApps";
 import { Button, Card, PageHeader, Toggle, cx } from "@/components/ui";
 import { PLATFORM_RULES, api, type PlatformId, type WorkspaceSettings } from "@/lib/api";
 import { useStore } from "@/lib/store";
@@ -161,8 +162,9 @@ export default function Settings() {
               <Toggle on={f.quiet_hours} onChange={() => set("quiet_hours", !f.quiet_hours)} label="Quiet hours" />
             </label>
           </div>
-          <p className="mt-3 text-xs text-muted">These are used by the publisher (next build phase).</p>
+          <p className="mt-3 text-xs text-muted">The scheduler and publisher use these for every batch.</p>
         </Card>
+        <PlatformApps />
       </div>
     </>
   );

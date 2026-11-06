@@ -40,12 +40,13 @@ const NAV = [
 ];
 
 function useNavCounts() {
-  const { batches, comments } = useStore();
+  const { comments } = useStore();
   // Clips is live: count real clips waiting for approval (no badge if the API is unreachable).
   const pending = usePoll(() => api.clips({ status: "pending" }), { intervalMs: 15000 });
+  const awaiting = usePoll(api.batches, { intervalMs: 15000 });
   return {
     "/clips": pending.data?.length ?? 0,
-    "/publishing": batches.filter((b) => b.status === "awaiting").length,
+    "/publishing": awaiting.data?.filter((b) => b.status === "awaiting").length ?? 0,
     "/engage": comments.filter((c) => c.status === "open" && c.category !== "spam").length,
   } as Record<string, number>;
 }
@@ -88,17 +89,19 @@ function Brand() {
 }
 
 function Workspace() {
+  const ws = usePoll(api.workspace, { intervalMs: 60000 });
+  const accounts = usePoll(api.accounts, { intervalMs: 60000 });
   return (
     <div className="rounded-md border border-line p-3 text-sm">
       <div className="text-xs text-muted">Workspace</div>
-      <div className="font-semibold">Maya Money</div>
-      <div className="mt-1 text-xs text-muted">35 accounts · self-hosted</div>
+      <div className="truncate font-semibold">{ws.data?.name ?? "…"}</div>
+      <div className="mt-1 text-xs text-muted">{accounts.data ? `${accounts.data.length} account${accounts.data.length === 1 ? "" : "s"} · self-hosted` : "self-hosted"}</div>
     </div>
   );
 }
 
 // Screens connected to the real backend so far. Everything else still shows sample data.
-const LIVE = ["/videos", "/activity", "/clips", "/settings", "/engines"];
+const LIVE = ["/videos", "/activity", "/clips", "/settings", "/engines", "/accounts", "/publishing", "/calendar", "/posts"];
 
 function SampleNotice() {
   const path = usePathname();
@@ -106,7 +109,7 @@ function SampleNotice() {
   if (path.startsWith("/videos/") ) return null;
   return (
     <p className="-mb-2 rounded border border-paid/30 bg-paid-soft px-3 py-2 text-xs text-paid">
-      Sample data. This screen connects to the backend in a later build phase. Videos, Clips, Engines, Settings and Activity are live.
+      Sample data. This screen connects to the backend in a later build phase. Overview, Engage and Analytics connect in the next phases.
     </p>
   );
 }
