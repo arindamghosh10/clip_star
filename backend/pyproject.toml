@@ -1,0 +1,35 @@
+[project]
+name = "clipstar"
+version = "0.1.0"
+description = "clip_star backend: API, job engine, pipeline stages and engines"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi==0.115.6",
+  "uvicorn[standard]==0.34.0",
+  "sqlalchemy==2.0.36",
+  "psycopg[binary]==3.2.3",
+  "alembic==1.14.0",
+  "pydantic==2.10.4",
+  "pydantic-settings==2.7.0",
+  "python-multipart==0.0.20",
+  "numpy==2.2.1",
+]
+
+[project.optional-dependencies]
+# Free local transcription engine. Downloads its Whisper model on first use.
+whisper = ["faster-whisper==1.1.1"]
+dev = ["pytest==8.3.4", "httpx==0.28.1"]
+
+[project.scripts]
+clipstar-worker = "clipstar.worker:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["clipstar*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

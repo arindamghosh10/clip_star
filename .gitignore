@@ -8,3 +8,9 @@ out/
 .DS_Store
 coverage/
 *.tsbuildinfo
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+backend/data/
+.pytest_cache/
