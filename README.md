@@ -27,7 +27,7 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 | Accounts: connect through each platform's login (encrypted tokens, refresh, reconnect prompts) or practice accounts | **Working** |
 | Publish: scheduler (posting hours per time zone, daily caps, spacing, A/B), batches with preview and approval, automation rules, publishers for YouTube, Instagram, Facebook, Threads, TikTok, X, LinkedIn, Pinterest, no double posts | **Working**; real posting needs your developer apps, see [`docs/PLATFORM_SETUP.md`](docs/PLATFORM_SETUP.md) |
 | Videos, Clips, clip editor, Accounts, Publishing, Calendar, Posts, Engines, Settings and Activity screens | **Live** on the backend |
-| Engage, Measure, Learn (Overview, Engage and Analytics screens) | Next phases; those screens show sample data |
+| Engage, Measure, Learn (Engage, Overview and Analytics screens) | Built; real platforms not yet verified (see docs/PROJECT_STATUS.md) |
 
 ## Run with Docker (one command)
 

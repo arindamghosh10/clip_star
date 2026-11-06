@@ -11,7 +11,7 @@ from ..config import get_settings
 from ..errors import PermanentError
 from datetime import datetime
 
-from .base import App, Identity, Provider, PublishRequest, PublishResult, RemoteComment, Tokens
+from .base import App, Identity, Provider, PublishRequest, PublishResult, RemoteComment, Tokens, num
 from .http import call, json_of
 from .util import text_matches, url, wait_until
 
@@ -45,7 +45,8 @@ class _FacebookLogin(Provider):
 class Instagram(_FacebookLogin):
     platform = "instagram"
     label = "Instagram"
-    scopes = ["instagram_basic", "instagram_content_publish", "instagram_manage_comments", "pages_show_list", "pages_read_engagement", "business_management"]
+    scopes = ["instagram_basic", "instagram_content_publish", "instagram_manage_comments", "instagram_manage_insights", "pages_show_list", "pages_read_engagement", "business_management"]
+    metrics_supported = True
     comments_supported = True
     reply_max_chars = 2200
     docs_url = "https://developers.facebook.com/docs/instagram-platform/content-publishing"
@@ -116,6 +117,29 @@ def _ig_hide(self, app, tokens, remote_id, comment_remote_id, hidden=True):
     call("POST", f"{graph()}/{comment_remote_id}", label=self.label, data={"hide": "true" if hidden else "false", "access_token": tokens.access_token})
 
 
+def _insight_values(d: dict) -> dict:
+    out = {}
+    for m in d.get("data", []):
+        v = (m.get("total_value") or {}).get("value")
+        if v is None and m.get("values"):
+            v = m["values"][-1].get("value")
+        out[m.get("name")] = v
+    return out
+
+
+def _ig_metrics(self, app, tokens, remote_id, post_remote_id, published_at, hints=None):
+    d = json_of(call("GET", url(f"{graph()}/{post_remote_id}/insights", metric="views,likes,comments,shares,saved,ig_reels_avg_watch_time", access_token=tokens.access_token), label=self.label), self.label)
+    v = _insight_values(d)
+    avg_ms = v.get("ig_reels_avg_watch_time")
+    return {"views": num(v.get("views")), "likes": num(v.get("likes")), "comments": num(v.get("comments")), "shares": num(v.get("shares")), "saves": num(v.get("saved")), "avg_watch_s": (avg_ms / 1000) if isinstance(avg_ms, (int, float)) else None}
+
+
+def _ig_followers(self, app, tokens, remote_id):
+    return num(json_of(call("GET", url(f"{graph()}/{remote_id}", fields="followers_count", access_token=tokens.access_token), label=self.label), self.label).get("followers_count"))
+
+
+Instagram.post_metrics = _ig_metrics
+Instagram.account_followers = _ig_followers
 Instagram.list_comments = _ig_comments
 Instagram.reply = _ig_reply
 Instagram.hide = _ig_hide
@@ -124,7 +148,8 @@ Instagram.hide = _ig_hide
 class Facebook(_FacebookLogin):
     platform = "facebook"
     label = "Facebook"
-    scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_manage_engagement", "pages_read_user_content", "business_management"]
+    scopes = ["pages_show_list", "pages_read_engagement", "pages_manage_posts", "pages_manage_engagement", "pages_read_user_content", "read_insights", "business_management"]
+    metrics_supported = True
     comments_supported = True
     reply_max_chars = 8000
     docs_url = "https://developers.facebook.com/docs/video-api/guides/reels-publishing"
@@ -166,6 +191,28 @@ def _fb_hide(self, app, tokens, remote_id, comment_remote_id, hidden=True):
     call("POST", f"{graph()}/{comment_remote_id}", label=self.label, data={"is_hidden": "true" if hidden else "false", "access_token": tokens.access_token})
 
 
+def _fb_metrics(self, app, tokens, remote_id, post_remote_id, published_at, hints=None):
+    tok = tokens.access_token
+    out: dict = {}
+    try:
+        v = _insight_values(json_of(call("GET", url(f"{graph()}/{post_remote_id}/video_insights", metric="blue_reels_play_count,post_video_avg_time_watched", access_token=tok), label=self.label), self.label))
+        out["views"] = num(v.get("blue_reels_play_count"))
+        if isinstance(v.get("post_video_avg_time_watched"), (int, float)):
+            out["avg_watch_s"] = v["post_video_avg_time_watched"] / 1000
+    except Exception:
+        pass  # insights can lag or be unavailable for new Pages; likes/comments still help
+    d = json_of(call("GET", url(f"{graph()}/{post_remote_id}", fields="likes.summary(true).limit(0),comments.summary(true).limit(0)", access_token=tok), label=self.label), self.label)
+    out["likes"] = num(((d.get("likes") or {}).get("summary") or {}).get("total_count"))
+    out["comments"] = num(((d.get("comments") or {}).get("summary") or {}).get("total_count"))
+    return out
+
+
+def _fb_followers(self, app, tokens, remote_id):
+    return num(json_of(call("GET", url(f"{graph()}/{remote_id}", fields="followers_count", access_token=tokens.access_token), label=self.label), self.label).get("followers_count"))
+
+
+Facebook.post_metrics = _fb_metrics
+Facebook.account_followers = _fb_followers
 Facebook.list_comments = _fb_comments
 Facebook.reply = _fb_reply
 Facebook.hide = _fb_hide
@@ -176,7 +223,8 @@ THREADS = "https://graph.threads.net"
 class Threads(Provider):
     platform = "threads"
     label = "Threads"
-    scopes = ["threads_basic", "threads_content_publish", "threads_read_replies", "threads_manage_replies"]
+    scopes = ["threads_basic", "threads_content_publish", "threads_read_replies", "threads_manage_replies", "threads_manage_insights"]
+    metrics_supported = True
     comments_supported = True
     reply_max_chars = 500
     docs_url = "https://developers.facebook.com/docs/threads/posts"
@@ -251,3 +299,18 @@ def _th_hide(self, app, tokens, remote_id, comment_remote_id, hidden=True):
 Threads.list_comments = _th_comments
 Threads.reply = _th_reply
 Threads.hide = _th_hide
+
+
+def _th_metrics(self, app, tokens, remote_id, post_remote_id, published_at, hints=None):
+    v = _insight_values(json_of(call("GET", url(f"{THREADS}/v1.0/{post_remote_id}/insights", metric="views,likes,replies,reposts,quotes,shares", access_token=tokens.access_token), label=self.label), self.label))
+    shares = sum(x for x in (num(v.get("reposts")), num(v.get("quotes")), num(v.get("shares"))) if x)
+    return {"views": num(v.get("views")), "likes": num(v.get("likes")), "comments": num(v.get("replies")), "shares": shares}
+
+
+def _th_followers(self, app, tokens, remote_id):
+    v = _insight_values(json_of(call("GET", url(f"{THREADS}/v1.0/{remote_id}/threads_insights", metric="followers_count", access_token=tokens.access_token), label=self.label), self.label))
+    return num(v.get("followers_count"))
+
+
+Threads.post_metrics = _th_metrics
+Threads.account_followers = _th_followers

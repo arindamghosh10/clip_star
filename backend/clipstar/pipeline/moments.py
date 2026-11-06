@@ -27,6 +27,7 @@ class MomentSettings:
     niche: str = ""
     voice: str = ""
     audience: str = ""
+    learned_model: dict | None = None  # per-creator scoring model (Learn), used only when active
 
     @classmethod
     def from_workspace(cls, settings: dict | None) -> "MomentSettings":
@@ -42,6 +43,9 @@ class MomentSettings:
         for k in ("niche", "voice", "audience"):
             if isinstance(s.get(k), str):
                 setattr(out, k, s[k])
+        lm = s.get("learned_model")
+        if isinstance(lm, dict) and lm.get("active") and isinstance(lm.get("weights"), dict):
+            out.learned_model = lm
         # keep the limits sane whatever was saved
         out.min_s = max(5.0, min(out.min_s, 170.0))
         out.max_s = max(out.min_s + 5, min(out.max_s, 180.0))
@@ -236,7 +240,30 @@ def score_window(sents: list[Sentence], i: int, j: int, sig: Signals, st: Moment
     )
     cand.title = make_title(sents[i].text)
     cand.hook = make_hook(sents[i].text)
+    if st.learned_model:
+        blend_learned(cand, st.learned_model)
     return cand
+
+
+def blend_learned(cand: "Candidate", model: dict) -> None:
+    """Mix in the creator's learned score (50/50). Intro/outro penalties still apply in full."""
+    from ..learn.insights import hook_type, learned_score
+
+    try:
+        ht = hook_type(cand.hook or cand.title)
+        feats = {**cand.features, "number_hook": 1.0 if ht == "number" else 0.0, "question_hook": 1.0 if ht == "question" else 0.0}
+        learned = learned_score(model, feats)
+    except Exception:  # a broken model must never break moment picking
+        return
+    if learned is None:
+        return
+    blended = int(round(0.5 * cand.score + 0.5 * learned))
+    if cand.features.get("housekeeping"):
+        blended = min(blended, cand.score)
+    cand.features = {**cand.features, "learned": round(learned, 1)}
+    if blended >= cand.score + 5:
+        cand.reason = f"{cand.reason}; similar to your best performers"
+    cand.score = max(0, min(100, blended))
 
 
 def _ts(sec: float) -> str:

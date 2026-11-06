@@ -162,7 +162,38 @@ export type ApiPost = {
   attempts: number;
   last_error: string | null;
   published_at: string | null;
+  metrics: PostMetrics;
 };
+export type PostMetrics = { views?: number; likes?: number; comments?: number; shares?: number; saves?: number; watch_pct?: number; avg_watch_s?: number; follows?: number; hours?: number; updated_at?: string; _error?: string };
+export type PeriodTotals = { posts: number; measured: number; practice_posts: number; views: number; likes: number; comments: number; shares: number; saves: number; follows: number; watch_pct: number | null; follower_gain?: number | null };
+export type TopPost = { post_id: string; clip_id: string; clip_title: string; video_id: string; variant: string; account_id: string; account: string; platform: PlatformId; practice: boolean; published_at: string | null; remote_url: string | null; views: number | null; likes: number | null; comments: number | null; shares: number | null; watch_pct: number | null; follows: number | null; rel: number | null };
+export type AnalyticsOverview = {
+  days: number;
+  start: string;
+  end: string;
+  totals: PeriodTotals;
+  previous: PeriodTotals;
+  series: { date: string; views: number; posts: number }[];
+  by_platform: { platform: PlatformId; posts: number; views: number }[];
+  by_account: { account_id: string; handle: string; platform: PlatformId; practice: boolean; posts: number; views: number }[];
+  top_posts: TopPost[];
+  scheduled: number;
+  practice_only: boolean;
+};
+export type Insight = { kind: "do" | "avoid"; dimension: string; title: string; body: string; n: number; lift: number };
+export type LearnedModel = { active: boolean; reason?: string; n: number; clips: number; trained_at: string; corr?: number; baseline_corr?: number; weights?: Record<string, number> };
+export type LearnView = {
+  n: number;
+  practice: number;
+  min_n: number;
+  insights: Insight[];
+  ideas: { topic: string; questions: number; body: string }[];
+  reclip: { video_id: string; title: string; reason: string }[];
+  model: LearnedModel | null;
+};
+export type ReportSummary = { id: string; period_start: string; period_end: string; summary: string; created_at: string };
+export type ApiReport = ReportSummary & { data: { overview: AnalyticsOverview; insights: Insight[]; ideas: LearnView["ideas"]; reclip: LearnView["reclip"]; model: LearnedModel; n: number } };
+export type AccountMetricsView = { supported: boolean; note: string | null; followers: { at: string; followers: number | null }[]; updated_at: string | null; overview: AnalyticsOverview };
 export type ApiBatch = {
   id: string;
   name: string;
@@ -336,6 +367,14 @@ export const api = {
   commentAction: (id: string, action: "skip" | "reopen" | "hide" | "unhide" | "mark-sent") => request<ApiComment>(`/api/comments/${id}/${action}`, json("POST")),
   syncComments: () => request<{ queued: number }>("/api/comments/sync", json("POST")),
   workspace: () => request<ApiWorkspace>("/api/workspace"),
+  analytics: (days = 7, account_id?: string) => request<AnalyticsOverview>(`/api/analytics/overview?days=${days}${account_id ? `&account_id=${account_id}` : ""}`),
+  learn: () => request<LearnView>("/api/analytics/learn"),
+  train: () => request<LearnedModel>("/api/learn/train", json("POST")),
+  reports: () => request<ReportSummary[]>("/api/reports"),
+  report: (id: string) => request<ApiReport>(`/api/reports/${id}`),
+  makeReport: () => request<ApiReport>("/api/reports", json("POST")),
+  accountMetrics: (id: string, days = 30) => request<AccountMetricsView>(`/api/accounts/${id}/metrics?days=${days}`),
+  reclip: (video_id: string) => request<{ ok: boolean; kept_existing: boolean }>(`/api/videos/${video_id}/reclip`, json("POST")),
   updateWorkspace: (body: { name?: string; settings?: WorkspaceSettings }) => request<ApiWorkspace>("/api/workspace", json("PATCH", body)),
   engines: () => request<ApiEngine[]>("/api/engines"),
   selectEngine: (stage: StageId, engine_id: string) => request<ApiEngine[]>(`/api/engines/${stage}`, json("PUT", { engine_id })),
@@ -401,4 +440,17 @@ export function fmtBytes(b: number) {
 
 export function fmtTime(iso: string) {
   return new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+export function fmtNum(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "—";
+  if (Math.abs(n) >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (Math.abs(n) >= 10_000) return `${(n / 1000).toFixed(1)}k`;
+  return Math.round(n).toLocaleString("en-US");
+}
+
+export function fmtDelta(cur: number, prev: number): string | undefined {
+  if (!prev) return undefined;
+  const d = ((cur - prev) / prev) * 100;
+  return `${d >= 0 ? "+" : ""}${d.toFixed(0)}% vs previous period`;
 }

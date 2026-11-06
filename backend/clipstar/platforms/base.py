@@ -135,6 +135,17 @@ class Provider:
         """Look for a post we may already have created (used after an ambiguous failure). None = not found / can't tell."""
         return None
 
+    # ---- stats (Measure) ----
+    metrics_supported: bool = False
+    metrics_note: str = "This platform's API doesn't share post stats with apps like this."
+
+    def post_metrics(self, app: App, tokens: Tokens, remote_id: str, post_remote_id: str, published_at: datetime, hints: dict | None = None) -> dict:
+        """Normalised stats: any of views, likes, comments, shares, saves, watch_pct, avg_watch_s, follows (missing = unknown)."""
+        return {}
+
+    def account_followers(self, app: App, tokens: Tokens, remote_id: str) -> int | None:
+        return None
+
     # ---- comments (Engage) ----
     comments_supported: bool = False
     comments_note: str = "This platform's API doesn't give apps access to comments."
@@ -149,3 +160,10 @@ class Provider:
 
     def hide(self, app: App, tokens: Tokens, remote_id: str, comment_remote_id: str, hidden: bool = True) -> None:
         raise NotImplementedError
+
+
+def num(v) -> int | None:
+    try:
+        return int(float(v)) if v is not None else None
+    except (TypeError, ValueError):
+        return None

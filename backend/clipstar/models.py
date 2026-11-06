@@ -210,6 +210,7 @@ class Account(Base):
     options: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))  # e.g. Pinterest board
     last_error: Mapped[str | None] = mapped_column(Text)
     comments_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    metrics_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # last follower snapshot
     created_at: Mapped[datetime] = _created()
     __table_args__ = (
         UniqueConstraint("workspace_id", "platform", "handle", name="uq_account_handle"),
@@ -252,6 +253,7 @@ class Post(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # last time a platform call began
     remote_url: Mapped[str | None] = mapped_column(String(500))
     verify_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    metrics_step: Mapped[int] = mapped_column(Integer, default=0, server_default="0")  # stats snapshots taken so far
     metrics: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     created_at: Mapped[datetime] = _created()
     updated_at: Mapped[datetime] = _updated()
@@ -403,3 +405,41 @@ class Comment(Base):
         UniqueConstraint("account_id", "remote_id", name="uq_comment_remote"),
         Index("ix_comments_state", "state", "category"),
     )
+
+
+class PostMetric(Base):
+    """A snapshot of one post's stats (taken 1 h, 1 day, 3 days and 7 days after publishing)."""
+
+    __tablename__ = "post_metrics"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    post_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("posts.id", ondelete="CASCADE"), index=True)
+    at: Mapped[datetime] = _created()
+    hours: Mapped[float] = mapped_column(Float)  # hours since publishing
+    views: Mapped[int | None] = mapped_column(BigInteger)
+    likes: Mapped[int | None] = mapped_column(BigInteger)
+    comments: Mapped[int | None] = mapped_column(BigInteger)
+    shares: Mapped[int | None] = mapped_column(BigInteger)
+    saves: Mapped[int | None] = mapped_column(BigInteger)
+    watch_pct: Mapped[float | None] = mapped_column(Float)  # average % of the video watched
+    avg_watch_s: Mapped[float | None] = mapped_column(Float)
+    follows: Mapped[int | None] = mapped_column(Integer)
+    raw: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+
+
+class AccountMetric(Base):
+    __tablename__ = "account_metrics"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    at: Mapped[datetime] = _created()
+    followers: Mapped[int | None] = mapped_column(BigInteger)
+
+
+class Report(Base):
+    __tablename__ = "reports"
+    id: Mapped[uuid.UUID] = _uuid()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    period_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    period_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    data: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    summary: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = _created()

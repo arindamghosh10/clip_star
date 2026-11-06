@@ -121,7 +121,7 @@ export function Stat({ label, value, delta }: { label: string; value: string; de
     <div className="flex min-w-0 flex-col gap-1 rounded-md border border-line bg-surface p-4">
       <span className="text-xs text-muted">{label}</span>
       <span className="tnum text-2xl font-bold">{value}</span>
-      {delta && <span className="text-xs font-medium text-free">{delta}</span>}
+      {delta && <span className={cx("text-xs font-medium", delta.startsWith("-") ? "text-rec" : delta.startsWith("+") ? "text-free" : "text-muted")}>{delta}</span>}
     </div>
   );
 }

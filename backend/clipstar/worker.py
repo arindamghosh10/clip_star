@@ -59,6 +59,7 @@ class Worker:
         log.info("worker %s started", self.id)
         last_beat = 0.0
         last_dispatch = 0.0
+        last_report = 0.0
         while not self._stop.is_set():
             if time.monotonic() - last_beat > 15:
                 self._beat()
@@ -73,6 +74,20 @@ class Worker:
                     dispatch_sync()
                 except Exception:
                     log.exception("publish dispatch failed")
+                try:
+                    from .learn.measure import dispatch_metrics
+
+                    dispatch_metrics()
+                except Exception:
+                    log.exception("metrics dispatch failed")
+            if time.monotonic() - last_report > 600:
+                last_report = time.monotonic()
+                try:
+                    from .learn.report import dispatch_reports
+
+                    dispatch_reports()
+                except Exception:
+                    log.exception("report dispatch failed")
             try:
                 ran = self.run_once()
             except Exception:

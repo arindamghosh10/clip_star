@@ -4,11 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AlertTriangle, ChevronLeft } from "lucide-react";
-import { api, type ApiAccount } from "@/lib/api";
+import { api, fmtDelta, fmtNum, fmtTime, type ApiAccount } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { usePoll } from "@/lib/usePoll";
 import { LivePostsTable } from "./LivePostsTable";
 import { Badge, Button, Card, PageHeader, PlatformBadge, Stat, Toggle } from "./ui";
+import { TopPostsTable, ViewsChart } from "./Analytics";
 
 export function LiveAccount({ id }: { id: string }) {
   const router = useRouter();
@@ -88,7 +89,7 @@ export function LiveAccount({ id }: { id: string }) {
         <Stat label="Waiting" value={String(st?.waiting ?? 0)} />
         <Stat label="Failed or unconfirmed" value={String(st?.problems ?? 0)} />
       </div>
-      <p className="-mt-3 text-xs text-muted">Views, watch time and followers arrive with the Measure phase.</p>
+      <AccountPerformance id={a.id} />
 
       <Card title="Account settings">
         {f && (
@@ -197,5 +198,30 @@ function In({ id, label, value, onChange }: { id: string; label: string; value: 
       <span className="text-xs text-muted">{label}</span>
       <input id={id} value={value} onChange={(e) => onChange(e.target.value)} className="rounded border border-line bg-paper px-3 py-2" />
     </label>
+  );
+}
+
+function AccountPerformance({ id }: { id: string }) {
+  const m = usePoll(() => api.accountMetrics(id, 30), { intervalMs: 60000, deps: [id] });
+  if (!m.data) return null;
+  if (!m.data.supported) return <p className="-mt-3 text-xs text-muted">{m.data.note ?? "This platform doesn't share post stats with apps like clip_star."}</p>;
+  const t = m.data.overview.totals;
+  const p = m.data.overview.previous;
+  const f = m.data.followers.filter((x) => x.followers != null);
+  const followers = f.length ? f[f.length - 1].followers : null;
+  const gain = f.length > 1 ? (f[f.length - 1].followers ?? 0) - (f[0].followers ?? 0) : null;
+  return (
+    <Card title="Performance · last 30 days" actions={<span className="text-xs text-muted">{m.data.updated_at ? `Followers checked ${fmtTime(m.data.updated_at)}` : "First stats about an hour after a post"}</span>} padded={false}>
+      <div className="grid grid-cols-2 gap-3 p-5 md:grid-cols-4">
+        <Stat label="Views" value={fmtNum(t.views)} delta={fmtDelta(t.views, p.views)} />
+        <Stat label="Average watched" value={t.watch_pct != null ? `${Math.round(t.watch_pct)}%` : "—"} />
+        <Stat label="Shares" value={fmtNum(t.shares)} />
+        <Stat label="Followers" value={fmtNum(followers)} delta={gain != null ? `${gain >= 0 ? "+" : ""}${fmtNum(gain)} in this period` : undefined} />
+      </div>
+      <div className="px-5 pb-4">
+        <ViewsChart series={m.data.overview.series} />
+      </div>
+      <TopPostsTable posts={m.data.overview.top_posts} showAccount={false} />
+    </Card>
   );
 }

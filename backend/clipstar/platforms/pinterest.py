@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from ..errors import PermanentError
-from .base import Identity, Provider, PublishResult, Tokens
+from datetime import datetime, timedelta, timezone
+
+from .base import Identity, Provider, PublishResult, Tokens, num
 from .http import call, json_of
 from .util import bearer, text_matches, url, wait_until
 
@@ -17,6 +19,7 @@ class Pinterest(Provider):
     comments_note = "Pinterest's API doesn't include comments."
     docs_url = "https://developers.pinterest.com/docs/api-features/creating-boards-and-pins/"
     client_id_label = "App ID"
+    metrics_supported = True
 
     def auth_url(self, app, state, redirect_uri, code_challenge):
         return url("https://www.pinterest.com/oauth/", client_id=app.client_id, redirect_uri=redirect_uri, response_type="code", scope=",".join(self.scopes), state=state)
@@ -83,3 +86,17 @@ class Pinterest(Provider):
             if text_matches(p.get("title"), (req.title or req.caption)[:100]):
                 return PublishResult(p["id"], f"https://www.pinterest.com/pin/{p['id']}/")
         return None
+
+    def post_metrics(self, app, tokens, remote_id, post_remote_id, published_at, hints=None):
+        start = published_at.date()
+        end = datetime.now(timezone.utc).date()
+        d = json_of(
+            call("GET", url(f"{API}/pins/{post_remote_id}/analytics", start_date=start.isoformat(), end_date=max(end, start).isoformat(), metric_types="IMPRESSION,SAVE,PIN_CLICK,VIDEO_MRC_VIEW,VIDEO_AVG_WATCH_TIME"), label=self.label, headers=bearer(tokens)),
+            self.label,
+        )
+        m = (d.get("all") or {}).get("summary_metrics") or (d.get("all") or {}).get("lifetime_metrics") or {}
+        avg_ms = m.get("VIDEO_AVG_WATCH_TIME")
+        return {"views": num(m.get("VIDEO_MRC_VIEW") or m.get("IMPRESSION")), "saves": num(m.get("SAVE")), "avg_watch_s": (avg_ms / 1000) if isinstance(avg_ms, (int, float)) else None}
+
+    def account_followers(self, app, tokens, remote_id):
+        return num(json_of(call("GET", f"{API}/user_account", label=self.label, headers=bearer(tokens)), self.label).get("follower_count"))

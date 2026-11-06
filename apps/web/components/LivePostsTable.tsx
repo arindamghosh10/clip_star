@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useMemo } from "react";
 import { ExternalLink } from "lucide-react";
-import { api, fmtTime, type ApiPost, type PostStatus } from "@/lib/api";
+import { api, fmtNum, fmtTime, type ApiPost, type PostStatus } from "@/lib/api";
 import { useStore } from "@/lib/store";
 import { usePoll } from "@/lib/usePoll";
 import { Badge, Button, EmptyNote, PlatformBadge } from "./ui";
@@ -66,6 +66,7 @@ export function LivePostsTable({ filter, showAccount = true }: { filter: PostFil
             <th className="px-3 py-2.5 font-medium first:pl-5">Clip</th>
             <th className="px-3 py-2.5 font-medium">When</th>
             <th className="px-3 py-2.5 font-medium">Status</th>
+            <th className="px-3 py-2.5 text-right font-medium">Results</th>
             <th className="px-5 py-2.5 text-right font-medium">Actions</th>
           </tr>
         </thead>
@@ -107,6 +108,9 @@ export function LivePostsTable({ filter, showAccount = true }: { filter: PostFil
                     {p.last_error && <span className={`text-xs ${p.status === "failed" ? "text-rec" : "text-muted"}`}>{p.last_error}</span>}
                   </span>
                 </td>
+                <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono text-xs">
+                  <Results p={p} practice={a?.connection === "simulated"} />
+                </td>
                 <td className="px-5 py-2.5">
                   <span className="flex flex-wrap justify-end gap-1">
                     {p.status === "unknown" && (
@@ -132,5 +136,21 @@ export function LivePostsTable({ filter, showAccount = true }: { filter: PostFil
         </tbody>
       </table>
     </div>
+  );
+}
+
+function Results({ p, practice }: { p: ApiPost; practice: boolean }) {
+  const m = p.metrics ?? {};
+  if (p.status !== "published") return <span className="text-muted">—</span>;
+  if (m._error) return <span className="text-muted" title={m._error}>unavailable</span>;
+  if (m.views === undefined) return <span className="text-muted">first stats ~1 h</span>;
+  return (
+    <span className="flex flex-col items-end gap-0.5" title={m.updated_at ? `Updated ${fmtTime(m.updated_at)}` : undefined}>
+      <span className="tnum font-semibold text-ink">{fmtNum(m.views)} views</span>
+      <span className="tnum text-muted">
+        {m.watch_pct != null ? `${Math.round(m.watch_pct)}% watched` : m.likes != null ? `${fmtNum(m.likes)} likes` : ""}
+        {practice ? " · practice" : ""}
+      </span>
+    </span>
   );
 }

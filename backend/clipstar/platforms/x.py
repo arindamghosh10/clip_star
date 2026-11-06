@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..errors import PermanentError
 from datetime import datetime
 
-from .base import Identity, Provider, PublishResult, RemoteComment, Tokens
+from .base import Identity, Provider, PublishResult, RemoteComment, Tokens, num
 from .http import call, json_of
 from .util import bearer, text_matches, url, wait_until
 
@@ -19,6 +19,7 @@ class X(Provider):
     scopes = ["tweet.read", "tweet.write", "users.read", "media.write", "offline.access", "tweet.moderate.write"]
     comments_supported = True
     comments_note = "Reading replies on X needs an API plan that includes search."
+    metrics_supported = True
     reply_max_chars = 280
     docs_url = "https://docs.x.com/x-api/media/quickstart/media-upload-chunked"
 
@@ -99,3 +100,12 @@ class X(Provider):
 
     def hide(self, app, tokens, remote_id, comment_remote_id, hidden=True):
         call("PUT", f"{API}/tweets/{comment_remote_id}/hidden", label=self.label, headers=bearer(tokens), json={"hidden": hidden})
+
+    def post_metrics(self, app, tokens, remote_id, post_remote_id, published_at, hints=None):
+        d = json_of(call("GET", url(f"{API}/tweets/{post_remote_id}", **{"tweet.fields": "public_metrics"}), label=self.label, headers=bearer(tokens)), self.label).get("data", {})
+        m = d.get("public_metrics", {})
+        return {"views": num(m.get("impression_count")), "likes": num(m.get("like_count")), "comments": num(m.get("reply_count")), "shares": (num(m.get("retweet_count")) or 0) + (num(m.get("quote_count")) or 0), "saves": num(m.get("bookmark_count"))}
+
+    def account_followers(self, app, tokens, remote_id):
+        d = json_of(call("GET", url(f"{API}/users/me", **{"user.fields": "public_metrics"}), label=self.label, headers=bearer(tokens)), self.label).get("data", {})
+        return num(d.get("public_metrics", {}).get("followers_count"))

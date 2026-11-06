@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from ..config import get_settings
-from . import routes_connect, routes_engage, routes_jobs, routes_misc, routes_publishing, routes_videos
+from . import routes_connect, routes_engage, routes_jobs, routes_learn, routes_misc, routes_publishing, routes_videos
 from .deps import require_token
 
 log = logging.getLogger("clipstar.api")
@@ -21,7 +21,7 @@ app.add_middleware(
 )
 
 # Every route needs the API token (when one is set) except OAuth callbacks and signed media links.
-for r in (routes_videos, routes_jobs, routes_publishing, routes_misc, routes_engage):
+for r in (routes_videos, routes_jobs, routes_publishing, routes_misc, routes_engage, routes_learn):
     app.include_router(r.router, dependencies=[Depends(require_token)])
 app.include_router(routes_connect.router)
 app.include_router(routes_connect.public)

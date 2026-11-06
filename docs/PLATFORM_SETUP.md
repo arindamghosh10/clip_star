@@ -19,7 +19,7 @@ Platform rules, approval processes and console menus change often. Each section 
 ## YouTube (Shorts)
 - **Where:** Google Cloud Console → create a project → enable **YouTube Data API v3** → OAuth consent screen → Credentials → *OAuth client ID* (type: Web application).
 - **Redirect address:** add the one shown in clip_star.
-- **Permissions:** `youtube.upload`, `youtube.readonly`, `youtube.force-ssl` (read, reply to and moderate comments).
+- **Permissions:** `youtube.upload`, `youtube.readonly`, `youtube.force-ssl` (read, reply to and moderate comments), `yt-analytics.readonly` (watch time, shares, subscribers gained). Also enable the **YouTube Analytics API** in the project.
 - **Keys in clip_star:** Client ID and Client secret.
 - **Good to know:** each upload uses API quota from your project's daily allowance; request more in the console if you post a lot. Apps in "testing" mode only work for listed test users, and Google may require verification before public use. Videos are posted as Shorts when they are vertical and under 3 minutes.
 - Docs: https://developers.google.com/youtube/v3/guides/uploading_a_video
@@ -27,20 +27,20 @@ Platform rules, approval processes and console menus change often. Each section 
 ## Instagram (Reels) and Facebook (Page Reels)
 - **Where:** Meta for Developers → create an app (Business type) → add **Facebook Login** → add the Instagram/Pages products your app needs.
 - **Redirect address:** add both clip_star addresses (Instagram and Facebook) under Facebook Login → *Valid OAuth Redirect URIs*. Meta requires https.
-- **Permissions:** Instagram: `instagram_basic`, `instagram_content_publish`, `instagram_manage_comments`, `pages_show_list`, `pages_read_engagement`, `business_management`. Facebook: `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `pages_manage_engagement`, `pages_read_user_content`, `business_management`.
+- **Permissions:** Instagram: `instagram_basic`, `instagram_content_publish`, `instagram_manage_comments`, `instagram_manage_insights`, `pages_show_list`, `pages_read_engagement`, `business_management`. Facebook: `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`, `pages_manage_engagement`, `pages_read_user_content`, `read_insights`, `business_management`.
 - **Keys:** App ID and App secret (the same app can be saved for both Instagram and Facebook).
 - **Good to know:** Instagram accounts must be **professional** (Business or Creator) and linked to a Facebook Page. One login can add several Pages and Instagram accounts at once. Using these permissions for accounts you don't own needs Meta **App Review**. Instagram allows about 50 API posts per account per day.
 - Docs: https://developers.facebook.com/docs/instagram-platform/content-publishing · https://developers.facebook.com/docs/video-api/guides/reels-publishing
 
 ## Threads
 - **Where:** Meta for Developers → create an app with the **Threads API** use case.
-- **Permissions:** `threads_basic`, `threads_content_publish`, `threads_read_replies`, `threads_manage_replies`. **Keys:** Threads App ID and secret.
+- **Permissions:** `threads_basic`, `threads_content_publish`, `threads_read_replies`, `threads_manage_replies`, `threads_manage_insights`. **Keys:** Threads App ID and secret.
 - **Extra requirement:** Threads downloads the video from a public web address. Set `CLIPSTAR_PUBLIC_MEDIA_URL` to the public https address of this server; clip_star gives Threads a signed link that expires after a few hours.
 - Docs: https://developers.facebook.com/docs/threads/posts
 
 ## TikTok
 - **Where:** TikTok for Developers → create an app → add **Login Kit** and **Content Posting API** (Direct Post).
-- **Permissions:** `user.info.basic`, `video.publish`. **Keys:** Client key and Client secret.
+- **Permissions:** `user.info.basic`, `user.info.stats`, `video.publish`, `video.list` (stats). **Keys:** Client key and Client secret.
 - **Good to know:** until TikTok **audits** your app, posts are private (only visible to the account owner) and only a few accounts can post per day. clip_star picks the visibility TikTok allows and marks private posts on the post. Apply for the audit in the developer portal.
 - Docs: https://developers.tiktok.com/doc/content-posting-api-get-started
 
@@ -66,6 +66,9 @@ Platform rules, approval processes and console menus change often. Each section 
 
 ## Comments (Engage)
 clip_star reads and replies to comments only on posts it published. Comments are available on **YouTube, Instagram, Facebook, Threads and X**. TikTok, LinkedIn and Pinterest don't give apps like this comment access, so their accounts are skipped. If you connected an account before comment support was added, **reconnect it once** so the platform grants the extra permissions above.
+
+## Stats (Measure)
+clip_star reads each post's numbers 1 hour, 1 day, 3 days and 7 days after it goes out, and each account's followers once a day. Stats are available on **YouTube, Instagram, Facebook, Threads, X, TikTok and Pinterest**; LinkedIn doesn't share stats for personal posts. What each platform reports differs (for example, only YouTube gives the average % watched for every post). If you connected an account before stats support was added, **reconnect it once** so the platform grants the permissions above.
 
 ## How clip_star keeps posting safe
 - A post is sent only when its batch is approved and running, and its account is connected.

@@ -7,7 +7,7 @@ The publisher picks the visibility from what TikTok says this account allows.
 from __future__ import annotations
 
 from ..errors import PermanentError, RetryableError
-from .base import Identity, Provider, PublishResult, Tokens
+from .base import Identity, Provider, PublishResult, Tokens, num
 from .http import call, json_of
 from .util import bearer, url, wait_until
 
@@ -41,7 +41,8 @@ def chunk_plan(size: int) -> tuple[int, int]:
 class TikTok(Provider):
     platform = "tiktok"
     label = "TikTok"
-    scopes = ["user.info.basic", "video.publish"]
+    scopes = ["user.info.basic", "user.info.stats", "video.publish", "video.list"]
+    metrics_supported = True
     comments_note = "TikTok's posting API doesn't include comments."
     docs_url = "https://developers.tiktok.com/doc/content-posting-api-get-started"
     client_id_label = "Client key"
@@ -121,3 +122,15 @@ class TikTok(Provider):
                 return PublishResult(publish_id, None, note or "Uploaded; TikTok is still processing it.")
             raise
         return PublishResult(post_id, None, note)
+
+    def post_metrics(self, app, tokens, remote_id, post_remote_id, published_at, hints=None):
+        d = _check(json_of(call("POST", url(f"{API}/video/query/", fields="id,view_count,like_count,comment_count,share_count"), label=self.label, headers={**bearer(tokens), "Content-Type": "application/json"}, json={"filters": {"video_ids": [str(post_remote_id)]}}), self.label), self.label)
+        vids = d.get("videos") or []
+        if not vids:
+            return {}
+        v = vids[0]
+        return {"views": num(v.get("view_count")), "likes": num(v.get("like_count")), "comments": num(v.get("comment_count")), "shares": num(v.get("share_count"))}
+
+    def account_followers(self, app, tokens, remote_id):
+        d = _check(json_of(call("GET", url(f"{API}/user/info/", fields="follower_count"), label=self.label, headers=bearer(tokens)), self.label), self.label)
+        return num(d.get("user", {}).get("follower_count"))
