@@ -2,7 +2,7 @@
 
 The one place that says **what we plan to build** and **what is built**. Update it at the end of every phase (see "How to update" at the bottom).
 
-**Last updated:** 2026-11-06 (Phase 9) · **Current phase:** 9 done, 10 next · **Branch:** `main`
+**Last updated:** 2026-11-06 (Phase 10) · **Current phase:** 10 done; all planned phases built, real-platform verification next · **Branch:** `main`
 
 Legend: ✅ built and tested · 🟡 built, not yet verified for real (see notes) · ⬜ planned, not built
 
@@ -36,7 +36,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | 7 | Engage | ✅ / 🟡 | Comments synced and sorted; approved replies appear on the platform (real platforms 🟡) |
 | 8 | Measure + Learn | ✅ / 🟡 | Real stats per post/account; weekly insights; per-creator scoring (real platform stats 🟡) |
 | 9 | Setup wizard, users/roles, notifications, budgets, storage lifecycle, backups | ✅ / 🟡 | Fresh install to first published clip without reading code (email delivery and Docker backups 🟡) |
-| 10 | Public API, webhooks, clip_star MCP server | ⬜ **next** | External tools and assistants can drive clip_star |
+| 10 | Public API, webhooks, clip_star MCP server | ✅ | External tools and assistants can drive clip_star |
 
 ---
 
@@ -57,7 +57,10 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Multiple workspaces | ⬜ | Single workspace today |
 | Notifications: bell in the app, one hook for every status change, deduplicated | ✅ | Batch waiting, post problems, reconnect, video ready/failed, leads, report, budget, disk, backups |
 | Email notifications (SMTP), per-person choice of what to email | ✅ / 🟡 | Tested with a fake mail server; set `CLIPSTAR_SMTP_*` to use |
-| Webhook / push notifications | ⬜ | Phase 10 (webhooks) |
+| Webhooks (signed, retried, auto-off after 20 failures, internal addresses blocked) and an ordered event feed | ✅ | 11 event types; `docs/API.md` |
+| Personal API keys (role-capped, revocable, rate-limited) and interactive API reference at `/api/docs` | ✅ | |
+| MCP server for AI assistants (`integrations/mcp`): 21 tools, publishing/replying need explicit confirmation | ✅ | Tested in-process, over stdio against the live API, and by a contract test in the backend suite |
+| Push notifications to phones | ⬜ | Not planned yet (webhooks to a push service work today) |
 | Monthly budget for paid engines; over budget the free engine takes over | ✅ | Estimated from token counts and configurable prices |
 | Storage: usage by kind, audio clean-up, rejected-render clean-up, optional archiving, purge of old records, low-disk alert | ✅ | Daily, owner sets the rules |
 | Backups: database + encryption key (+ optional media), daily with rotation, download, restore command | ✅ / 🟡 | Round-trip tested with pg_dump/pg_restore 16; Docker image install of the client tools not built in the sandbox |
@@ -211,6 +214,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | 2026-11-06 | 7 | Engage: comment sync (5 platforms + practice), sorting, drafts (rules/Claude/Ollama), safe replies with hourly limits, auto-reply and auto-hide, live Engage screen |
 | 2026-11-06 | 8 | Measure + Learn: stats for 7 platforms + practice, follower counts, live Overview/Analytics/account performance, insights, ideas from questions, re-clip, learned scoring in Find moments, weekly reports |
 | 2026-11-06 | 9 | Setup wizard, team sign-in and roles, notifications (bell + email), paid-engine budgets, storage clean-up and archiving, backups with restore; fixed Settings save failing once the learned model existed; `docs/OPERATIONS.md` |
+| 2026-11-06 | 10 | Personal API keys, `/api/docs`, event feed, signed webhooks with retries and delivery log, MCP server package for AI assistants, Settings → Integrations; `docs/API.md` |
 
 ---
 

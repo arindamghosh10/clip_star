@@ -127,7 +127,12 @@ export const NOTIFY_KINDS: Record<string, string> = {
   budget: "Paid engine budget",
   storage: "Low disk space",
   backup: "Backups",
+  webhook: "A webhook was switched off",
 };
+
+export type ApiKeyInfo = { id: string; name: string; prefix: string; role: Role; user_id: string; user_email: string | null; last_used_at: string | null; revoked: boolean; created_at: string | null };
+export type ApiWebhook = { id: string; url: string; description: string; events: string[]; enabled: boolean; consecutive_failures: number; disabled_reason: string | null; last_delivery_at: string | null; created_at: string | null };
+export type ApiDelivery = { id: string; event_id: number; event_type: string; status: "pending" | "sent" | "failed"; attempts: number; response_code: number | null; error: string | null; created_at: string | null; delivered_at: string | null };
 
 export type ApiEngine = { id: string; stage: StageId; name: string; kind: "free" | "connector"; description: string; ok: boolean; message: string; selected: boolean; estimate: string | null };
 
@@ -429,6 +434,18 @@ export const api = {
   cleanStorage: () => request<{ job_id: string }>("/api/admin/storage/clean", json("POST")),
   backups: () => request<BackupList>("/api/admin/backups"),
   backupNow: (media: boolean) => request<{ job_id: string }>("/api/admin/backups", json("POST", { media })),
+  keys: () => request<ApiKeyInfo[]>("/api/keys"),
+  createKey: (name: string, role: Role) => request<ApiKeyInfo & { key: string }>("/api/keys", json("POST", { name, role })),
+  revokeKey: (id: string) => request<void>(`/api/keys/${id}`, json("DELETE")),
+  eventTypes: () => request<Record<string, string>>("/api/events/types"),
+  webhooks: () => request<ApiWebhook[]>("/api/webhooks"),
+  createWebhook: (url: string, events: string[], description: string) => request<ApiWebhook & { secret: string }>("/api/webhooks", json("POST", { url, events, description })),
+  updateWebhook: (id: string, body: Partial<Pick<ApiWebhook, "url" | "events" | "description" | "enabled">>) => request<ApiWebhook>(`/api/webhooks/${id}`, json("PATCH", body)),
+  rotateWebhookSecret: (id: string) => request<ApiWebhook & { secret: string }>(`/api/webhooks/${id}/secret`, json("POST")),
+  deleteWebhook: (id: string) => request<void>(`/api/webhooks/${id}`, json("DELETE")),
+  testWebhook: (id: string) => request<{ delivery_id: string }>(`/api/webhooks/${id}/test`, json("POST")),
+  deliveries: (id: string) => request<ApiDelivery[]>(`/api/webhooks/${id}/deliveries`),
+  redeliver: (id: string, deliveryId: string) => request<{ delivery_id: string }>(`/api/webhooks/${id}/deliveries/${deliveryId}/retry`, json("POST")),
   analytics: (days = 7, account_id?: string) => request<AnalyticsOverview>(`/api/analytics/overview?days=${days}${account_id ? `&account_id=${account_id}` : ""}`),
   learn: () => request<LearnView>("/api/analytics/learn"),
   train: () => request<LearnedModel>("/api/learn/train", json("POST")),
@@ -484,6 +501,7 @@ export function uploadVideo(
 export const clipMediaUrl = (id: string, variant: string, key?: string) => `${API_BASE}/api/clips/${id}/media/${variant}${key ? `?v=${key}` : ""}`;
 export const clipCoverUrl = (id: string, variant: string, key?: string) => `${API_BASE}/api/clips/${id}/cover/${variant}${key ? `?v=${key}` : ""}`;
 
+export const apiDocsUrl = `${API_BASE}/api/docs`;
 export const backupUrl = (name: string) => `${API_BASE}/api/admin/backups/${encodeURIComponent(name)}`;
 export const proxyUrl = (videoId: string) => `${API_BASE}/api/videos/${videoId}/proxy`;
 

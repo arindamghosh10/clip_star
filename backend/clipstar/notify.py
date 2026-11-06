@@ -12,7 +12,7 @@ import logging
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import event, inspect, select
+from sqlalchemy import event, func, inspect, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -71,13 +71,65 @@ def _val(x) -> str:
 
 def _scan(s: Session) -> None:
     for obj in list(s.dirty) + list(s.new):
-        try:
-            if obj in s.new:
-                _scan_new(s, obj)
-            else:
-                _scan_dirty(s, obj)
-        except Exception:  # one odd object must not hide the others
-            log.exception("notification check failed for %r", obj)
+        new = obj in s.new
+        if new and hasattr(obj, "id") and getattr(obj, "id", None) is None and isinstance(obj, (Batch, Comment, Report, Post)):
+            obj.id = uuid.uuid4()  # events need the id now; it's normally set at insert
+        for fn in ((_scan_new, _events_new) if new else (_scan_dirty, _events_dirty)):
+            try:
+                fn(s, obj)
+            except Exception:  # one odd object must not hide the others
+                log.exception("notification/event check failed for %r", obj)
+
+
+def _ws_of_post(s: Session, p: Post):
+    b = s.get(Batch, p.batch_id)
+    return b.workspace_id if b else None
+
+
+def _events_dirty(s: Session, obj) -> None:
+    from .events import emit
+    from .models import Clip, ClipStatus
+
+    if isinstance(obj, Video):
+        if _changed_to(obj, "status", VideoStatus.ready):
+            n = s.scalar(select(func.count(Clip.id)).where(Clip.video_id == obj.id)) or 0
+            emit(s, obj.workspace_id, "video.ready", {"video_id": obj.id, "title": obj.title, "clips": n, "link": f"/videos/{obj.id}"})
+        elif _changed_to(obj, "status", VideoStatus.failed):
+            emit(s, obj.workspace_id, "video.failed", {"video_id": obj.id, "title": obj.title, "error": obj.error, "stage": _val(obj.stage)})
+    elif isinstance(obj, Clip):
+        for st in (ClipStatus.approved, ClipStatus.rejected):
+            if _changed_to(obj, "status", st):
+                v = s.get(Video, obj.video_id)
+                if v:
+                    emit(s, v.workspace_id, f"clip.{st.value}", {"clip_id": obj.id, "video_id": obj.video_id, "title": obj.title, "score": obj.score, "link": f"/clips/{obj.id}"})
+    elif isinstance(obj, Batch) and _changed_to(obj, "status", BatchStatus.running) and inspect(obj).attrs["status"].history.deleted == [BatchStatus.awaiting]:
+        emit(s, obj.workspace_id, "batch.approved", {"batch_id": obj.id, "name": obj.name})
+    elif isinstance(obj, Account) and _changed_to(obj, "status", AccountStatus.reconnect):
+        emit(s, obj.workspace_id, "account.needs_reconnect", {"account_id": obj.id, "platform": _val(obj.platform), "handle": obj.handle, "reason": obj.last_error})
+    elif isinstance(obj, Post):
+        for st, kind in ((PostStatus.published, "post.published"), (PostStatus.failed, "post.failed")):
+            if _changed_to(obj, "status", st):
+                ws = _ws_of_post(s, obj)
+                a = s.get(Account, obj.account_id)
+                if ws:
+                    emit(s, ws, kind, {
+                        "post_id": obj.id, "batch_id": obj.batch_id, "clip_id": obj.clip_id, "variant": obj.variant,
+                        "account_id": obj.account_id, "platform": _val(a.platform) if a else None, "handle": a.handle if a else None,
+                        "remote_id": obj.remote_id, "url": obj.remote_url, "error": obj.last_error if st == PostStatus.failed else None,
+                    })
+
+
+def _events_new(s: Session, obj) -> None:
+    from .events import emit
+
+    if isinstance(obj, Batch) and obj.status in (BatchStatus.awaiting, None):
+        emit(s, obj.workspace_id, "batch.awaiting_approval", {"batch_id": obj.id, "name": obj.name, "origin": obj.origin, "link": "/publishing"})
+    elif isinstance(obj, Comment):
+        a = s.get(Account, obj.account_id)
+        if a is not None:
+            emit(s, a.workspace_id, "comment.received", {"comment_id": obj.id, "account_id": a.id, "platform": _val(a.platform), "post_id": obj.post_id, "author": obj.author, "message": (obj.message or "")[:1000], "category": _val(obj.category)})
+    elif isinstance(obj, Report):
+        emit(s, obj.workspace_id, "report.ready", {"report_id": obj.id, "summary": obj.summary, "link": "/analytics"})
 
 
 def _scan_dirty(s: Session, obj) -> None:

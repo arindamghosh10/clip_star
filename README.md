@@ -11,6 +11,7 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 ```
 
 - Design and reliability rules: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- API, webhooks and AI assistants (MCP): [`docs/API.md`](docs/API.md)
 - Running it day to day (team, email, budgets, disk, backups): [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - **What is planned and what is built:** [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) (kept up to date every phase)
 
@@ -30,6 +31,7 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 | Videos, Clips, clip editor, Accounts, Publishing, Calendar, Posts, Engines, Settings and Activity screens | **Live** on the backend |
 | Engage, Measure, Learn (Engage, Overview and Analytics screens) | Built; real platforms not yet verified (see docs/PROJECT_STATUS.md) |
 | Setup wizard, team sign-in and roles, notifications (bell + email), budgets for paid engines, storage clean-up, backups | **Working**; see [`docs/OPERATIONS.md`](docs/OPERATIONS.md) |
+| Public API with personal keys, event feed, signed webhooks, MCP server for AI assistants | **Working**; see [`docs/API.md`](docs/API.md) |
 
 ## Run with Docker (one command)
 

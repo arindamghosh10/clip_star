@@ -75,6 +75,13 @@ class Settings(BaseSettings):
     claude_price_input_per_mtok: float = 4.0
     claude_price_output_per_mtok: float = 20.0
 
+    # Webhooks: block private/internal addresses unless you run receivers on your own network (e.g. n8n next to clip_star).
+    webhook_allow_private: bool = False
+    webhook_timeout_seconds: float = 10.0
+    webhook_disable_after_failures: int = 20
+    # Personal API keys: requests per minute per key (per API process)
+    api_key_rate_per_minute: int = 600
+
     # Backups: pg_dump/pg_restore must be installed. Scheduled backups run when backup_dir is set.
     backup_dir: Path | None = None
     backup_keep: int = 7

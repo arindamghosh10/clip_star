@@ -125,6 +125,54 @@ def find_invite(s: Session, raw: str) -> User | None:
     return u
 
 
+# ---------- personal API keys ----------
+
+KEY_PREFIX = "cs_"
+RANK = {Role.viewer: 0, Role.reviewer: 1, Role.editor: 2, Role.owner: 3}
+
+
+def new_api_key() -> tuple[str, str, str]:
+    """Returns (raw key shown once, display prefix, hash stored)."""
+    raw = KEY_PREFIX + secrets.token_urlsafe(32)
+    return raw, raw[:10], token_hash(raw)
+
+
+def lower_role(a: Role, b: Role) -> Role:
+    return a if RANK[a] <= RANK[b] else b
+
+
+_hits: dict[str, list[float]] = {}
+
+
+def rate_ok(key_id: str, per_minute: int) -> bool:
+    """Sliding one-minute window per key, in this process."""
+    import time as _t
+
+    t = _t.monotonic()
+    q = [x for x in _hits.get(key_id, []) if t - x < 60]
+    if len(q) >= per_minute:
+        _hits[key_id] = q
+        return False
+    q.append(t)
+    _hits[key_id] = q
+    return True
+
+
+def key_principal(s: Session, raw: str):
+    from .models import ApiKey
+
+    k = s.scalar(select(ApiKey).where(ApiKey.key_hash == token_hash(raw)))
+    if k is None or k.revoked_at is not None:
+        return None
+    u = s.get(User, k.user_id)
+    if u is None or u.disabled or not u.password_hash:
+        return None
+    if k.last_used_at is None or k.last_used_at < now() - timedelta(minutes=5):
+        k.last_used_at = now()
+        s.commit()
+    return Principal(lower_role(k.role, u.role), user=u, via="key", key_id=str(k.id))
+
+
 # ---------- permissions ----------
 
 
@@ -132,7 +180,8 @@ def find_invite(s: Session, raw: str) -> User | None:
 class Principal:
     role: Role
     user: User | None = None
-    via: str = "session"  # session | token | open
+    via: str = "session"  # session | key | token | open
+    key_id: str | None = None
 
     @property
     def user_id(self) -> uuid.UUID | None:
@@ -141,11 +190,11 @@ class Principal:
 
 _SAFE = {"GET", "HEAD", "OPTIONS"}
 # Paths anyone signed in may change (their own profile, notifications)
-_SELF = [r"^/api/auth/", r"^/api/notifications(/|$)"]
+_SELF = [r"^/api/auth/", r"^/api/notifications(/|$)", r"^/api/keys(/|$)"]
 # What reviewers may do besides looking: approve/reject and fix clips, approve or stop batches and posts, handle comments.
 _REVIEWER = [r"^/api/clips/[^/]+$", r"^/api/batches/[^/]+/(approve|disable|enable|cancel)$", r"^/api/posts/[^/]+/cancel$", r"^/api/comments(/|$)"]
 # Owner only: team, platform developer apps, paid engine choice, budgets, storage policy and backups.
-_OWNER = [r"^/api/users(/|$)", r"^/api/platforms/[^/]+/app$", r"^/api/engines/", r"^/api/admin/"]
+_OWNER = [r"^/api/users(/|$)", r"^/api/platforms/[^/]+/app$", r"^/api/engines/", r"^/api/admin/", r"^/api/webhooks(/|$)"]
 
 ROLE_HELP = {
     Role.owner: "Everything, including the team, platform apps, paid engines, budgets, storage and backups.",

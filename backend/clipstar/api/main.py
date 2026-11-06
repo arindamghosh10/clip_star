@@ -7,12 +7,24 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from ..config import get_settings
-from . import routes_admin, routes_auth, routes_connect, routes_engage, routes_jobs, routes_learn, routes_misc, routes_publishing, routes_videos
+from . import routes_admin, routes_auth, routes_integrations, routes_connect, routes_engage, routes_jobs, routes_learn, routes_misc, routes_publishing, routes_videos
 from .deps import require_token
 
 log = logging.getLogger("clipstar.api")
 
-app = FastAPI(title="clip_star API", version="0.1.0")
+app = FastAPI(
+    title="clip_star API",
+    version="1.0.0",
+    description=(
+        "Everything the clip_star app does, for your own scripts and tools.\n\n"
+        "Authenticate with a personal API key (Settings → Integrations): `Authorization: Bearer cs_...`. "
+        "A key acts as the person who made it, with the role chosen for the key (never more than theirs). "
+        "Events: poll `GET /api/events?after=<last id>` or register a webhook. See docs/API.md."
+    ),
+    docs_url="/api/docs",
+    redoc_url=None,
+    openapi_url="/api/openapi.json",
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=get_settings().cors_origins,
@@ -22,7 +34,7 @@ app.add_middleware(
 )
 
 # Every route needs a signed-in user with the right role (or the API token), except sign-in, OAuth callbacks and signed media links.
-for r in (routes_videos, routes_jobs, routes_publishing, routes_misc, routes_engage, routes_learn, routes_auth, routes_admin):
+for r in (routes_videos, routes_jobs, routes_publishing, routes_misc, routes_engage, routes_learn, routes_auth, routes_admin, routes_integrations):
     app.include_router(r.router, dependencies=[Depends(require_token)])
 app.include_router(routes_connect.router)
 app.include_router(routes_auth.public)

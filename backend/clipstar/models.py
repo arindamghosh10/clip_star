@@ -517,3 +517,65 @@ class EngineUsage(Base):
     created_at: Mapped[datetime] = _created()
 
     __table_args__ = (Index("ix_engine_usage_ws_created", "workspace_id", "created_at"),)
+
+
+# ---------- Phase 10: public API, events, webhooks ----------
+
+
+class ApiKey(Base):
+    """A personal API key. It acts as its owner, never with more rights than the owner has."""
+
+    __tablename__ = "api_keys"
+    id: Mapped[uuid.UUID] = _uuid()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    name: Mapped[str] = mapped_column(String(100))
+    prefix: Mapped[str] = mapped_column(String(16))  # shown in the UI so keys can be told apart
+    key_hash: Mapped[str] = mapped_column(String(128), unique=True)
+    role: Mapped[Role] = mapped_column(_enum(Role, "role"), default=Role.viewer)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created()
+
+
+class Event(Base):
+    """Outbox of things that happened, in order. Feeds webhooks and the /api/events feed."""
+
+    __tablename__ = "events"
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    type: Mapped[str] = mapped_column(String(60))
+    data: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    fanned_out: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (Index("ix_events_pending", "id", postgresql_where=text("NOT fanned_out")),)
+
+
+class Webhook(Base):
+    __tablename__ = "webhooks"
+    id: Mapped[uuid.UUID] = _uuid()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    url: Mapped[str] = mapped_column(String(2000))
+    description: Mapped[str] = mapped_column(String(200), default="")
+    events: Mapped[list] = mapped_column(JSONB, default=list, server_default=text("'[]'::jsonb"))  # ["*"] = all
+    secret_enc: Mapped[str] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(default=True, server_default=text("true"))
+    consecutive_failures: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    disabled_reason: Mapped[str | None] = mapped_column(String(300))
+    last_delivery_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created()
+
+
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+    id: Mapped[uuid.UUID] = _uuid()
+    webhook_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("webhooks.id", ondelete="CASCADE"), index=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), index=True)
+    event_type: Mapped[str] = mapped_column(String(60))
+    status: Mapped[str] = mapped_column(String(10), default="pending")  # pending | sent | failed
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    response_code: Mapped[int | None] = mapped_column(Integer)
+    error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created()
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

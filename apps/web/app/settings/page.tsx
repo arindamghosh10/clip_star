@@ -3,9 +3,10 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
 import { BackupsCard, NotificationsCard, ProfileCard, StorageCard, TeamCard } from "@/components/AdminSettings";
+import { ApiKeysCard, WebhooksCard } from "@/components/Integrations";
 import { PlatformApps } from "@/components/PlatformApps";
 import { Button, Card, PageHeader, Toggle, cx } from "@/components/ui";
-import { PLATFORM_RULES, api, type PlatformId, type WorkspaceSettings } from "@/lib/api";
+import { API_BASE, PLATFORM_RULES, api, type PlatformId, type WorkspaceSettings } from "@/lib/api";
 import { useStore } from "@/lib/store";
 
 const DEFAULTS: Required<Omit<WorkspaceSettings, "auto_approve_score">> & { auto_approve_score: number | null } = {
@@ -179,8 +180,33 @@ export default function Settings() {
         <TeamCard />
         <StorageCard />
         <BackupsCard />
+        <h2 id="integrations" className="-mb-1 mt-2 font-mono text-xs uppercase tracking-wider text-muted lg:col-span-2">Integrations</h2>
+        <ApiKeysCard />
+        <McpCard />
+        <WebhooksCard />
       </div>
     </>
+  );
+}
+
+function McpCard() {
+  return (
+    <Card title="AI assistants (MCP)">
+      <div className="flex flex-col gap-2 text-sm">
+        <p className="text-muted">
+          Let Claude or another MCP-capable assistant review clips, schedule posts and read results for you. It can only do what its API key allows, and it asks before publishing or replying.
+        </p>
+        <ol className="flex list-decimal flex-col gap-1 pl-5">
+          <li>Create an API key (Editor for full use, Viewer to only look).</li>
+          <li>Install the server: <code className="font-mono text-xs">pip install ./integrations/mcp</code></li>
+          <li>
+            Add it to your assistant, e.g. Claude Code:
+            <code className="mt-1 block break-all rounded bg-paper px-2 py-1 font-mono text-xs">claude mcp add clipstar --env CLIPSTAR_URL={API_BASE || (typeof window !== "undefined" ? window.location.origin : "http://localhost:3000")} --env CLIPSTAR_API_KEY=cs_… -- clipstar-mcp</code>
+          </li>
+        </ol>
+        <p className="text-xs text-muted">Other assistants and the tool list: docs/API.md.</p>
+      </div>
+    </Card>
   );
 }
 

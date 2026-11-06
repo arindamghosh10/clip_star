@@ -4,6 +4,7 @@ def register_all() -> None:
     from ..learn.report import register_handlers as report
     from ..maintenance import register_handlers as maintenance
     from ..notify import register_handlers as notify
+    from ..webhooks import register_handlers as webhooks
     from ..publishing.service import register_handlers as publishing
     from .stages import register_handlers
 
@@ -14,3 +15,4 @@ def register_all() -> None:
     report()
     notify()
     maintenance()
+    webhooks()

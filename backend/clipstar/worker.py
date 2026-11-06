@@ -77,9 +77,11 @@ class Worker:
                 try:
                     from .learn.measure import dispatch_metrics
                     from .notify import dispatch_email
+                    from .webhooks import dispatch as dispatch_webhooks
 
                     dispatch_metrics()
                     dispatch_email()
+                    dispatch_webhooks()
                 except Exception:
                     log.exception("metrics/email dispatch failed")
             if time.monotonic() - last_report > 600:

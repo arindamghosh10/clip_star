@@ -29,6 +29,7 @@ from .models import (
     Batch,
     Clip,
     ClipStatus,
+    Event,
     Job,
     JobStatus,
     Notification,
@@ -120,6 +121,8 @@ def purge_records(s) -> dict:
     out["sessions"] = s.execute(delete(UserSession).where(UserSession.expires_at < now())).rowcount
     out["oauth_states"] = s.execute(delete(OAuthState).where(OAuthState.created_at < now() - timedelta(days=1))).rowcount
     out["notifications"] = s.execute(delete(Notification).where(Notification.created_at < now() - timedelta(days=90))).rowcount
+    # the event feed keeps 30 days (deliveries go with their events)
+    out["events"] = s.execute(delete(Event).where(Event.created_at < now() - timedelta(days=30), Event.fanned_out.is_(True))).rowcount
     return out
 
 

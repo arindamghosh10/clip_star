@@ -22,7 +22,14 @@ def principal(request: Request, s: Session = Depends(get_session)) -> auth.Princ
     if cached is not None:
         return cached
     p: auth.Principal | None = None
-    if _token_ok(request):
+    header = request.headers.get("authorization") or ""
+    if header.startswith("Bearer " + auth.KEY_PREFIX):
+        p = auth.key_principal(s, header[7:].strip())
+        if p is None:
+            raise HTTPException(status_code=401, detail="This API key is wrong or was revoked.")
+        if not auth.rate_ok(p.key_id or "", get_settings().api_key_rate_per_minute):
+            raise HTTPException(status_code=429, detail="Too many requests with this API key. Slow down and retry in a minute.", headers={"Retry-After": "60"})
+    elif _token_ok(request):
         p = auth.Principal(Role.owner, via="token")
     else:
         user = auth.session_user(s, request.cookies.get(auth.COOKIE))
@@ -39,6 +46,8 @@ def principal(request: Request, s: Session = Depends(get_session)) -> auth.Princ
 def authorize(request: Request, p: auth.Principal = Depends(principal)) -> auth.Principal:
     """Router dependency: role check for every route, plus a CSRF guard for browser sessions."""
     method = request.method.upper()
+    if p.via == "key" and request.url.path.startswith(("/api/keys", "/api/auth/")) and method not in ("GET", "HEAD"):
+        raise HTTPException(status_code=403, detail="API keys can't manage keys or sign-in. Use the app.")
     if p.via == "session" and method not in ("GET", "HEAD", "OPTIONS") and request.headers.get(auth.CSRF_HEADER) != "1":
         raise HTTPException(status_code=403, detail="Missing request header. Reload the page and try again.")
     if not auth.allowed(p.role, method, request.url.path):
