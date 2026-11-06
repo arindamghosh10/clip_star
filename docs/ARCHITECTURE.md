@@ -2,7 +2,7 @@
 
 ## 1. Review of the plan: what was missing, what to add
 
-The prototype covers the creator's daily screens. Building the real system exposed these gaps. Items marked **(added)** are now part of the plan; the phase that delivers each one is in `ROADMAP.md`.
+The prototype covers the creator's daily screens. Building the real system exposed these gaps. Items marked **(added)** are now part of the plan; the phase that delivers each one is in `PROJECT_STATUS.md`.
 
 ### Missing for a self-hosted system to work at all
 | Gap | Why it matters | Resolution |

@@ -11,7 +11,7 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 ```
 
 - Design and reliability rules: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
-- Build phases and what's done: [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- **What is planned and what is built:** [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) (kept up to date every phase)
 
 ## Status
 
