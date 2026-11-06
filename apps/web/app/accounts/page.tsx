@@ -4,7 +4,8 @@ import type { ReactNode } from "react";
 import { useMemo, useState } from "react";
 import { Plus } from "lucide-react";
 import { Badge, Button, Card, Dot, PageHeader, PlatformBadge, Toggle, cx } from "@/components/ui";
-import { GROUPS, PLATFORMS, type Platform } from "@/lib/data";
+import Link from "next/link";
+import { GROUPS, PLATFORMS, accountKpis, type Platform } from "@/lib/data";
 import { useStore } from "@/lib/store";
 
 export default function Accounts() {
@@ -64,13 +65,15 @@ export default function Accounts() {
 
       <Card padded={false}>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[760px] text-sm">
+          <table className="w-full min-w-[900px] text-sm">
             <thead>
               <tr className="border-b border-line text-left font-mono text-[11px] uppercase tracking-wider text-muted">
                 <th className="px-5 py-2.5 font-medium">Account</th>
                 <th className="px-3 py-2.5 font-medium">Group</th>
                 <th className="px-3 py-2.5 font-medium">Status</th>
                 <th className="px-3 py-2.5 text-right font-medium">Today</th>
+                <th className="px-3 py-2.5 text-right font-medium">Views 2wk</th>
+                <th className="px-3 py-2.5 text-right font-medium">Watched</th>
                 <th className="px-3 py-2.5 font-medium">Next post</th>
                 <th className="px-3 py-2.5 font-medium">Language · zone</th>
                 <th className="px-5 py-2.5 text-right font-medium">Posting</th>
@@ -82,7 +85,7 @@ export default function Accounts() {
                   <td className="px-5 py-2.5">
                     <span className="flex items-center gap-2">
                       <PlatformBadge platform={a.platform} />
-                      <span className="font-medium">{a.handle}</span>
+                      <Link href={`/accounts/${a.id}`} className="font-medium hover:text-accent hover:underline">{a.handle}</Link>
                     </span>
                   </td>
                   <td className="px-3 py-2.5">
@@ -103,6 +106,8 @@ export default function Accounts() {
                   <td className="tnum px-3 py-2.5 text-right font-mono">
                     {a.today} / {PLATFORMS[a.platform].limit}
                   </td>
+                  <td className="tnum px-3 py-2.5 text-right font-mono">{(accountKpis(a.id).views7d / 1000).toFixed(1)}k</td>
+                  <td className="tnum px-3 py-2.5 text-right font-mono">{accountKpis(a.id).watched}%</td>
                   <td className="tnum px-3 py-2.5 font-mono text-muted">{a.status === "paused" ? "—" : a.next}</td>
                   <td className="px-3 py-2.5 text-muted">
                     {a.language} · <span className="font-mono text-xs">{a.timezone}</span>

@@ -341,3 +341,135 @@ export const CONNECTIONS: Connection[] = [
   { id: "elevenlabs", name: "ElevenLabs API key", usedFor: "Dubbing", status: "connected" },
   { id: "gdrive", name: "Google Drive", usedFor: "Import source videos", status: "reconnect" },
 ];
+
+// ---------- Posts (what each account posted or will post) ----------
+
+export type PostStatus = "posted" | "scheduled" | "failed" | "held";
+
+export type Post = {
+  id: string;
+  accountId: string;
+  clip: string;
+  variant: string;
+  batch: string;
+  when: string; // display label
+  order: number; // for sorting: lower = earlier
+  status: PostStatus;
+  views: number;
+  watched: number; // % watched to the end
+  likes: number;
+  comments: number;
+  shares: number;
+  follows: number;
+};
+
+// Small deterministic random so sample data is stable between renders.
+function seeded(seed: number) {
+  let s = seed % 2147483647;
+  if (s <= 0) s += 2147483646;
+  return () => (s = (s * 16807) % 2147483647) / 2147483647;
+}
+function hash(str: string) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h) + 1;
+}
+
+const PAST = [
+  { clip: "Rent trap", batch: "B-0412", when: "Mon 18:00" },
+  { clip: "The $40 mistake", batch: "B-0412", when: "Sun 12:00" },
+  { clip: "Landlord red flags", batch: "B-0412", when: "Sat 10:30" },
+  { clip: "Credit score myths", batch: "B-0409", when: "Fri 17:45" },
+  { clip: "Pay off cards first?", batch: "B-0409", when: "Thu 12:00" },
+  { clip: "Credit score in 30 days", batch: "B-0409", when: "Wed 09:30" },
+  { clip: "Emergency fund size", batch: "B-0398", when: "Last Tue 19:00" },
+  { clip: "The 3-month rule", batch: "B-0398", when: "Last Mon 18:00" },
+];
+const FUTURE = [
+  { clip: "Why your deposit disappears", batch: "B-0412", when: "Wed 18:00" },
+  { clip: "Renting vs buying", batch: "B-0412", when: "Thu 12:15" },
+  { clip: "Old re-clip: budgeting", batch: "B-0405", when: "Fri 20:00" },
+];
+
+const platformReach: Record<Platform, number> = {
+  youtube: 1.6, tiktok: 1.4, instagram: 1, facebook: 0.55, x: 0.3, linkedin: 0.3, threads: 0.25, pinterest: 0.2,
+};
+
+function postsFor(a: Account): Post[] {
+  const r = seeded(hash(a.id));
+  const reach = platformReach[a.platform] * (a.group === "Finance EN" ? 1.4 : a.group === "Finance ES" ? 0.6 : 1);
+  const past: Post[] = PAST.slice(0, 5 + Math.floor(r() * 4)).map((p, i) => {
+    const views = Math.round((2500 + r() * 22000) * reach);
+    const failed = a.status === "reconnect" && i === 0;
+    return {
+      id: `${a.id}-p${i}`,
+      accountId: a.id,
+      clip: p.clip,
+      variant: ["A", "B", "C"][Math.floor(r() * 3)],
+      batch: p.batch,
+      when: p.when,
+      order: -i,
+      status: failed ? "failed" : "posted",
+      views: failed ? 0 : views,
+      watched: failed ? 0 : Math.round(32 + r() * 33),
+      likes: failed ? 0 : Math.round(views * (0.03 + r() * 0.05)),
+      comments: failed ? 0 : Math.round(views * (0.002 + r() * 0.006)),
+      shares: failed ? 0 : Math.round(views * (0.006 + r() * 0.02)),
+      follows: failed ? 0 : Math.round(views * (0.002 + r() * 0.008)),
+    };
+  });
+  const future: Post[] = FUTURE.map((p, i) => ({
+    id: `${a.id}-f${i}`,
+    accountId: a.id,
+    clip: p.clip,
+    variant: ["A", "B"][Math.floor(r() * 2)],
+    batch: p.batch,
+    when: p.when,
+    order: 10 + i,
+    status: a.status === "paused" || p.batch === "B-0405" ? "held" : "scheduled",
+    views: 0, watched: 0, likes: 0, comments: 0, shares: 0, follows: 0,
+  }));
+  return [...future, ...past];
+}
+
+export const POSTS: Post[] = ACCOUNTS.flatMap(postsFor);
+
+export type AccountKpis = {
+  followers: number;
+  followerGrowth: number;
+  views7d: number;
+  watched: number;
+  engagement: number; // %
+  posts7d: number;
+  failed: number;
+  scheduled: number;
+  best?: Post;
+  daily: number[]; // 14 days of views
+  bestTime: string;
+};
+
+export function accountKpis(accountId: string): AccountKpis {
+  const a = ACCOUNTS.find((x) => x.id === accountId)!;
+  const ps = POSTS.filter((p) => p.accountId === accountId);
+  const live = ps.filter((p) => p.status === "posted");
+  const views = live.reduce((n, p) => n + p.views, 0);
+  const inter = live.reduce((n, p) => n + p.likes + p.comments + p.shares, 0);
+  const r = seeded(hash(accountId + "k"));
+  const base = views / 7;
+  return {
+    followers: Math.round(4000 + r() * 90000 * platformReach[a.platform]),
+    followerGrowth: live.reduce((n, p) => n + p.follows, 0),
+    views7d: views,
+    watched: live.length ? Math.round(live.reduce((n, p) => n + p.watched, 0) / live.length) : 0,
+    engagement: views ? Math.round((inter / views) * 1000) / 10 : 0,
+    posts7d: live.length,
+    failed: ps.filter((p) => p.status === "failed").length,
+    scheduled: ps.filter((p) => p.status === "scheduled").length,
+    best: [...live].sort((x, y) => y.views - x.views)[0],
+    daily: Array.from({ length: 14 }, (_, i) => Math.round(base * (0.45 + i * 0.05 + r() * 0.35))),
+    bestTime: ["18:00", "12:15", "19:30", "09:30", "20:00"][Math.floor(r() * 5)] + " local",
+  };
+}
+
+export const CLIP_NAMES = Array.from(new Set(POSTS.map((p) => p.clip)));
+export const BATCH_IDS = Array.from(new Set(POSTS.map((p) => p.batch)));
