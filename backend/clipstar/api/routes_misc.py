@@ -128,6 +128,8 @@ def update_clip(clip_id: uuid.UUID, body: ClipPatch, s: Session = Depends(get_se
     rerender = False
     if (video.meta or {}).get("archived") and ("start_s" in data or "end_s" in data or "variants" in data):
         raise HTTPException(409, ARCHIVED)
+    if (c.meta or {}).get("external") and ("start_s" in data or "end_s" in data or "variants" in data):
+        raise HTTPException(409, f"This clip was made by {(c.meta or {}).get('external').title()}, so it can't be re-cut here. You can still change its text, approve or reject it.")
 
     if "start_s" in data or "end_s" in data:
         start = data.pop("start_s", c.start_s)
@@ -149,7 +151,7 @@ def update_clip(clip_id: uuid.UUID, body: ClipPatch, s: Session = Depends(get_se
             raise HTTPException(422, "Each variant needs a different id.")
         if vs != list(c.variants or []):
             c.variants = [
-                {"id": v["id"], "caption_style": v["caption_style"], "hook": v["hook"].strip().upper(), **{k: v[k] for k in ("zoom", "emoji") if v.get(k) is not None},
+                {"id": v["id"], "caption_style": v["caption_style"], "hook": v["hook"].strip().upper(), **{k: v[k] for k in ("zoom", "emoji", "broll") if v.get(k) is not None},
                  **({"music": {**v["music"], "track_id": str(v["music"]["track_id"]) if v["music"].get("track_id") else None}} if v.get("music") is not None else {})}
                 for v in vs
             ]
@@ -298,7 +300,7 @@ def edit_transcript(video_id: uuid.UUID, body: TranscriptEdits, s: Session = Dep
     archived = bool((v.meta or {}).get("archived"))
     clips_changed = 0
     for c in s.scalars(select(Clip).where(Clip.video_id == v.id).with_for_update()):
-        if not any(r0 < c.end_s and r1 > c.start_s for r0, r1 in ranges):
+        if (c.meta or {}).get("external") or not any(r0 < c.end_s and r1 > c.start_s for r0, r1 in ranges):
             continue
         meta = dict(c.meta or {})
         meta["words"] = _words_in(v, c.start_s, c.end_s)
@@ -308,6 +310,95 @@ def edit_transcript(video_id: uuid.UUID, body: TranscriptEdits, s: Session = Dep
             enqueue_clip_render(s, c)
     s.commit()
     return {"segments_changed": len(ranges), "clips_changed": clips_changed, "rerendered": 0 if archived else clips_changed}
+
+
+class DubIn(BaseModel):
+    lang: str = Field(min_length=2, max_length=5)
+    variant: str = Field(default="A", pattern=r"^[AB]$")
+
+
+class ExternalIn(BaseModel):
+    vendor: str = Field(pattern=r"^(klap|vizard)$")
+
+
+@router.get("/external-clippers")
+def external_clippers():
+    from .. import external_clippers as ec
+
+    return [{"id": k, "name": v, "configured": ec.configured(k)} for k, v in ec.VENDORS.items()]
+
+
+@router.post("/videos/{video_id}/external-clips", status_code=202)
+def external_clips(video_id: uuid.UUID, body: ExternalIn, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """Ask Klap or Vizard (your own account) to clip this video; their clips arrive in Clips for review."""
+    from .. import external_clippers as ec
+    from ..config import get_settings
+    from ..jobs import queue
+
+    v = s.get(Video, video_id)
+    if v is None or v.workspace_id != ws.id:
+        raise HTTPException(404, "Video not found.")
+    if not ec.configured(body.vendor):
+        raise HTTPException(409, f"{ec.VENDORS[body.vendor]} isn't set up. Add CLIPSTAR_{body.vendor.upper()}_API_KEY on the server.")
+    if not get_settings().public_media_url:
+        raise HTTPException(409, f"{ec.VENDORS[body.vendor]} downloads the video itself, so this server must be reachable from the internet. Set CLIPSTAR_PUBLIC_MEDIA_URL.")
+    if (v.meta or {}).get("archived"):
+        raise HTTPException(409, ARCHIVED)
+    job = queue.enqueue(s, ec.KIND, {"video_id": str(v.id), "vendor": body.vendor}, video_id=v.id, dedupe_key=f"video:{v.id}:external:{body.vendor}", max_attempts=2)
+    s.commit()
+    return {"job_id": str(job.id)}
+
+
+@router.get("/dubbing")
+def dubbing_info():
+    from .. import dubbing
+
+    return {"enabled": dubbing.enabled(), "languages": dubbing.LANGS}
+
+
+@router.post("/clips/{clip_id}/dubs", status_code=202)
+def dub_clip(clip_id: uuid.UUID, body: DubIn, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """Dub one version of the clip into another language with ElevenLabs (paid connector)."""
+    from .. import dubbing
+    from ..jobs import queue
+
+    if not dubbing.enabled():
+        raise HTTPException(409, "Dubbing isn't set up. Add your ElevenLabs key (CLIPSTAR_ELEVENLABS_API_KEY) on the server.")
+    if body.lang not in dubbing.LANGS:
+        raise HTTPException(422, f"Choose one of: {', '.join(sorted(dubbing.LANGS))}.")
+    c = _clip(s, ws, clip_id)
+    _variant_ok(c, body.variant)
+    if (c.meta or {}).get("external"):
+        raise HTTPException(409, "Clips from external services can't be dubbed here (their timing isn't known).")
+    v = s.get(Video, c.video_id)
+    if (v.meta or {}).get("archived"):
+        raise HTTPException(409, ARCHIVED)
+    job = queue.enqueue(s, dubbing.KIND, {"clip_id": str(c.id), "lang": body.lang, "variant": body.variant}, video_id=c.video_id, dedupe_key=f"clip:{c.id}:dub:{body.variant}-{body.lang}", max_attempts=3)
+    s.commit()
+    return {"job_id": str(job.id), "variant": f"{body.variant}-{body.lang}"}
+
+
+@router.delete("/clips/{clip_id}/dubs/{dub_id}", status_code=204)
+def remove_dub(clip_id: uuid.UUID, dub_id: str, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    c = _clip(s, ws, clip_id)
+    c = s.get(Clip, c.id, with_for_update=True)
+    meta = dict(c.meta or {})
+    dubs = dict(meta.get("dubs") or {})
+    d = dubs.pop(dub_id, None)
+    if d is None:
+        raise HTTPException(404, "No such dubbed version.")
+    renders = dict(meta.get("renders") or {})
+    r = renders.pop(dub_id, None)
+    meta["dubs"], meta["renders"] = dubs, renders
+    c.meta = meta
+    s.commit()
+    st = get_storage()
+    for rel in (d.get("audio"), (r or {}).get("path"), (r or {}).get("cover")):
+        if rel:
+            try:
+                st.abs(rel).unlink(missing_ok=True)
+            except (OSError, ValueError):
+                pass
 
 
 @router.get("/clips/{clip_id}/media/{variant}")
@@ -416,6 +507,8 @@ def rerender_clip(clip_id: uuid.UUID, s: Session = Depends(get_session), ws: Wor
         raise HTTPException(409, "Rejected clips aren't rendered. Approve or restore it first.")
     if ((v := s.get(Video, c.video_id)) and (v.meta or {}).get("archived")):
         raise HTTPException(409, ARCHIVED)
+    if (c.meta or {}).get("external"):
+        raise HTTPException(409, "This clip came finished from an external service, so clip_star doesn't re-render it.")
     job = enqueue_clip_render(s, c)
     s.commit()
     return {"job_id": str(job.id)}

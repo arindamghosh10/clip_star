@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from ..config import get_settings
 from ..engines.base import EngineInfo, Health
-from ..engines.llm import EngineDeclined, claude_health, claude_json, ollama_health, ollama_json
+from ..engines.llm import EngineDeclined, claude_health, claude_json, ollama_health, ollama_json, openai_health, openai_json
 from ..errors import RetryableError
 from ..models import Stage
 from ..pipeline.moments import mentions_banned
@@ -189,3 +189,13 @@ class OllamaEngageEngine(_AIEngage):
 
     def call(self, system, prompt):
         return ollama_json(system, prompt, SCHEMA)
+
+
+class OpenAIEngageEngine(_AIEngage):
+    info = EngineInfo(id="openai", stage=Stage.engage, name="OpenAI", kind="connector", description="An OpenAI model sorts comments and drafts replies, answering from what the clip says. Uses your OpenAI API key.")
+
+    def check(self):
+        return openai_health()
+
+    def call(self, system, prompt):
+        return openai_json(system, prompt, SCHEMA, max_tokens=8000)

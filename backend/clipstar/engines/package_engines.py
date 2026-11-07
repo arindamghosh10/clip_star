@@ -10,7 +10,7 @@ from ..jobs.runtime import JobContext
 from ..models import Stage
 from ..pipeline.package import PLATFORM_RULES, ClipContext, PackageSettings, template_copy
 from .base import EngineInfo, Health
-from .llm import EngineDeclined, claude_health, claude_json, ollama_health, ollama_json
+from .llm import EngineDeclined, claude_health, claude_json, ollama_health, ollama_json, openai_health, openai_json
 
 
 class PackageEngine:
@@ -160,3 +160,13 @@ class OllamaPackageEngine(_AIPackageEngine):
 
     def call(self, system, prompt, schema):
         return ollama_json(system, prompt, schema)
+
+
+class OpenAIPackageEngine(_AIPackageEngine):
+    info = EngineInfo(id="openai", stage=Stage.package, name="OpenAI", kind="connector", description="An OpenAI model writes each platform's title, caption and hashtags. Uses your OpenAI API key and the model you set.")
+
+    def check(self) -> Health:
+        return openai_health()
+
+    def call(self, system, prompt, schema):
+        return openai_json(system, prompt, schema, max_tokens=8000)

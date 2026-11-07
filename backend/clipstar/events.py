@@ -25,6 +25,7 @@ EVENT_TYPES: dict[str, str] = {
     "account.needs_reconnect": "An account's login expired",
     "comment.received": "A new comment arrived on one of your posts",
     "report.ready": "A weekly report was made",
+    "youtube.new_upload": "A new video appeared on a connected YouTube channel",
 }
 
 

@@ -37,8 +37,33 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None  # falls back to ANTHROPIC_API_KEY
     claude_model: str = "claude-opus-5-5"
     claude_effort: str = "medium"  # low | medium | high | xhigh | max
+    # OpenAI (or any OpenAI-compatible API via the base URL). No model is assumed: pick one your key can use.
+    openai_api_key: str | None = None  # falls back to OPENAI_API_KEY
+    openai_model: str | None = None
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_price_input_per_mtok: float | None = None  # for budgets; check your provider's price list
+    openai_price_output_per_mtok: float | None = None
     ollama_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.1:8b"
+
+    # Hosted transcription connectors (your own keys). Prices are estimates for budgets, in USD per audio minute.
+    deepgram_api_key: str | None = None
+    deepgram_model: str = "nova-3"
+    deepgram_price_per_min: float | None = None
+    assemblyai_api_key: str | None = None
+    assemblyai_speech_model: str = "universal"
+    assemblyai_price_per_min: float | None = None
+
+    # Dubbing with ElevenLabs (your own key). Price is an estimate for budgets, USD per minute of clip.
+    elevenlabs_api_key: str | None = None
+    elevenlabs_price_per_min: float | None = None
+
+    # External clipping services (your own accounts)
+    klap_api_key: str | None = None
+    vizard_api_key: str | None = None
+
+    # B-roll from Pexels (free stock video; your own key)
+    pexels_api_key: str | None = None
 
     # Edit: rendering
     render_preset: str = "veryfast"  # x264 speed/quality trade-off

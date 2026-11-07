@@ -68,14 +68,18 @@ def now() -> datetime:
 
 
 def account_info(a: Account) -> AccountInfo:
-    return AccountInfo(id=str(a.id), platform=a.platform.value, handle=a.handle, timezone=a.timezone, start=a.posting_start, end=a.posting_end, daily_cap=a.daily_cap, status=a.status.value)
+    return AccountInfo(id=str(a.id), platform=a.platform.value, handle=a.handle, timezone=a.timezone, start=a.posting_start, end=a.posting_end, daily_cap=a.daily_cap, status=a.status.value, language=a.language or "")
 
 
 def clip_info(c: Clip) -> ClipInfo:
     renders = (c.meta or {}).get("renders") or {}
     st = get_storage()
     variants = [v["id"] for v in (c.variants or []) if v["id"] in renders and st.exists(renders[v["id"]]["path"])]
-    return ClipInfo(id=str(c.id), title=c.title, variants=variants, preflight=(c.meta or {}).get("preflight") or {})
+    dubs: dict[str, list[str]] = {}
+    for vid, d in ((c.meta or {}).get("dubs") or {}).items():
+        if vid in renders and st.exists(renders[vid]["path"]):
+            dubs.setdefault(d["lang"], []).append(vid)
+    return ClipInfo(id=str(c.id), title=c.title, variants=variants, preflight=(c.meta or {}).get("preflight") or {}, dubs=dubs)
 
 
 def existing_times(s: Session, account_ids: list[uuid.UUID]) -> dict[str, list[datetime]]:

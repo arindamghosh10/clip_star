@@ -102,6 +102,7 @@ class VariantIn(BaseModel):
     zoom: bool | None = None  # punch-in zooms on emphasis (None = workspace default)
     emoji: bool | None = None  # emojis above the captions (None = workspace default)
     music: MusicChoice | None = None  # None = workspace default
+    broll: bool | None = None  # B-roll cutaways from Pexels (None = workspace default)
 
 
 class ClipPatch(BaseModel):
@@ -154,6 +155,7 @@ class WorkspaceSettingsIn(BaseModel):
     # editing effects (defaults for new renders; each clip version can override)
     auto_zoom: bool | None = None
     emojis: bool | None = None
+    broll: bool | None = None
     default_music_id: str | None = None  # "" to clear
     music_volume: float | None = Field(default=None, ge=0.02, le=0.8)
     # first-run wizard finished

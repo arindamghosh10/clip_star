@@ -11,23 +11,29 @@ from sqlalchemy.orm import Session
 
 from ..models import EngineChoice, Stage
 from .captions import CaptionsFileEngine
-from .moments_engines import ClaudeMomentEngine, OllamaMomentEngine, RulesMomentEngine
-from .package_engines import ClaudePackageEngine, OllamaPackageEngine, TemplatePackageEngine
+from .moments_engines import ClaudeMomentEngine, OllamaMomentEngine, OpenAIMomentEngine, RulesMomentEngine
+from .package_engines import ClaudePackageEngine, OllamaPackageEngine, OpenAIPackageEngine, TemplatePackageEngine
+from .hosted_stt import AssemblyAIEngine, DeepgramEngine
 from .whisper import WhisperEngine
-from ..engage.engines import ClaudeEngageEngine, OllamaEngageEngine, RulesEngageEngine
+from ..engage.engines import ClaudeEngageEngine, OllamaEngageEngine, OpenAIEngageEngine, RulesEngageEngine
 
 _ALL = (
     WhisperEngine(),
     CaptionsFileEngine(),
+    DeepgramEngine(),
+    AssemblyAIEngine(),
     RulesMomentEngine(),
     ClaudeMomentEngine(),
     OllamaMomentEngine(),
+    OpenAIMomentEngine(),
     TemplatePackageEngine(),
     ClaudePackageEngine(),
     OllamaPackageEngine(),
+    OpenAIPackageEngine(),
     RulesEngageEngine(),
     ClaudeEngageEngine(),
     OllamaEngageEngine(),
+    OpenAIEngageEngine(),
 )
 ENGINES: dict[tuple[Stage, str], object] = {(e.info.stage, e.info.id): e for e in _ALL}
 

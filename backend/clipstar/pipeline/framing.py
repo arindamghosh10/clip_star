@@ -84,7 +84,7 @@ def plan_layout(video: Path, start: float, end: float, cuts: list[float], src_w:
     return Layout("crop", segs, ratio)
 
 
-def video_filter(layout: Layout, src_w: int, src_h: int, ass_path: str | None, zoom: str | None = None, overlays: list[tuple[int, int, float, float]] | None = None) -> str:
+def video_filter(layout: Layout, src_w: int, src_h: int, ass_path: str | None, zoom: str | None = None, overlays: list[tuple[int, int, float, float]] | None = None, cutaways: list[tuple[int, float, float]] | None = None) -> str:
     """ffmpeg filter graph from input [0:v] to output [v] at 1080x1920.
 
     zoom: an expression in t for the punch-in factor (1 = none), applied under the captions.
@@ -109,6 +109,13 @@ def video_filter(layout: Layout, src_w: int, src_h: int, ass_path: str | None, z
     if zoom and zoom != "1":
         # per-frame scale up, then crop back to the centre: a smooth punch-in
         chain += f",scale=w='trunc(1080*({zoom})/2)*2':h=-2:eval=frame:flags=bicubic,crop=1080:1920,setsar=1"
+    if cutaways:
+        # full-screen B-roll: each shot starts playing at its cutaway time; captions stay on top
+        chain += "[cut0]"
+        for k, (idx, a, b) in enumerate(cutaways):
+            chain += f";[{idx}:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1,setpts=PTS-STARTPTS+{a}/TB[bro{k}]"
+            chain += f";[cut{k}][bro{k}]overlay=enable='between(t,{a},{b})':eof_action=pass[cut{k + 1}]"
+        chain += f";[cut{len(cutaways)}]null"
     if overlays:
         chain += "[base0]"
         for k, (idx, y, a, b) in enumerate(overlays):

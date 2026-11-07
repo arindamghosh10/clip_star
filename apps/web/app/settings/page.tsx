@@ -35,6 +35,7 @@ const DEFAULTS: Required<Omit<WorkspaceSettings, "auto_approve_score" | "default
   comment_sync_minutes: 15,
   auto_zoom: true,
   emojis: false,
+  broll: false,
 };
 
 // Only the keys this page edits (workspace settings also hold things like the learned model and budgets).
@@ -132,6 +133,13 @@ export default function Settings() {
             <label className="flex items-center justify-between gap-3">
               <span>Emojis above the captions (a few per clip)</span>
               <Toggle on={f.emojis} onChange={() => set("emojis", !f.emojis)} label="Emojis" />
+            </label>
+            <label className="flex items-center justify-between gap-3">
+              <span>
+                B-roll cutaways from Pexels (up to two per clip)
+                <span className="block text-xs text-muted">Needs a free Pexels API key on the server (CLIPSTAR_PEXELS_API_KEY).</span>
+              </span>
+              <Toggle on={f.broll} onChange={() => set("broll", !f.broll)} label="B-roll" />
             </label>
             <Field label="Caption style for version A">
               <Choice value={f.caption_style} options={[["bold-pop", "Bold, word highlight"], ["clean", "Clean, boxed"]]} onChange={(v) => set("caption_style", v as "bold-pop" | "clean")} />

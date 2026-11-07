@@ -25,6 +25,7 @@ from .analysis import audio_energy, detect_scenes
 from .framing import plan_layout
 from .moments import MomentSettings, Signals, build_sentences, clip_words, finalize, make_hook, overlap
 from .package import ClipContext, PackageSettings, finalize_copy
+from .broll import plan_broll
 from .effects import pick_emojis, pick_zooms
 from .render import RenderSpec, render_clip
 
@@ -309,8 +310,16 @@ def render_clips(ctx: JobContext, video: Video, assets: dict[str, Asset], clip_i
         q = select(Clip).where(Clip.video_id == video.id, Clip.status != ClipStatus.rejected)
         if clip_ids:
             q = q.where(Clip.id.in_(clip_ids))
-        clips = [(c.id, c.start_s, c.end_s, list(c.variants or []), dict(c.meta or {})) for c in s.scalars(q.order_by(Clip.score.desc()))]
+        # clips made by an external service come already rendered and don't map onto this video's timeline
+        clips = [(c.id, c.start_s, c.end_s, list(c.variants or []), dict(c.meta or {})) for c in s.scalars(q.order_by(Clip.score.desc())) if not (c.meta or {}).get("external")]
     jobs = [(cid, a, b, v, meta) for cid, a, b, vs, meta in clips for v in vs]
+    # dubbed versions render like their base version, with the dubbed voice and translated captions
+    for cid, a, b, vs, meta in clips:
+        base_by_id = {v["id"]: v for v in vs}
+        for dub_id, d in (meta.get("dubs") or {}).items():
+            base = base_by_id.get(d.get("base")) or (vs[0] if vs else None)
+            if base:
+                jobs.append((cid, a, b, {**base, "id": dub_id, "hook": "", "_dub": d}, meta))
     done = failed = skipped = 0
     layouts: dict = {}  # one framing analysis per clip, shared by its variants
     for k, (cid, a, b, variant, meta) in enumerate(jobs):
@@ -320,7 +329,8 @@ def render_clips(ctx: JobContext, video: Video, assets: dict[str, Asset], clip_i
         if cid not in layouts:
             layouts[cid] = plan_layout(stg.abs(proxy.path), a, b, cuts, pr["width"], pr["height"])
         layout = layouts[cid]
-        words = meta.get("words", [])
+        dub = variant.get("_dub")
+        words = dub["words"] if dub else meta.get("words", [])
         wst = _ws_settings(video)
         zoom_on = variant.get("zoom", wst.get("auto_zoom", True))
         emoji_on = variant.get("emoji", wst.get("emojis", False))
@@ -328,6 +338,8 @@ def render_clips(ctx: JobContext, video: Video, assets: dict[str, Asset], clip_i
             start=a, end=b, words=words, hook=variant.get("hook", ""), caption_style=variant.get("caption_style", "bold-pop"), layout=layout,
             zooms=pick_zooms(words, b - a) if zoom_on else [], emojis=pick_emojis(words, b - a) if emoji_on else [],
             music=_music_for(video, variant, wst),
+            broll=plan_broll(words, b - a) if variant.get("broll", wst.get("broll", False)) else [],
+            voice=str(stg.abs(dub["audio"])) if dub else None,
         )
         key = spec.key()
         vid_rel = stg.rel(video.id, f"clips/{cid}/{variant['id']}.mp4")
@@ -343,7 +355,8 @@ def render_clips(ctx: JobContext, video: Video, assets: dict[str, Asset], clip_i
             failed += 1
             _save_render(cid, variant["id"], None, e.user_message)
             continue
-        _save_render(cid, variant["id"], {"key": key, "path": vid_rel, "cover": cov_rel, "layout": layout.as_dict(), **info}, None)
+        credits = [{"source": c.get("source"), "by": c.get("by")} for c in spec.broll]
+        _save_render(cid, variant["id"], {"key": key, "path": vid_rel, "cover": cov_rel, "layout": layout.as_dict(), **({"broll": credits} if credits else {}), **info}, None)
         done += 1
     if jobs and failed == len(jobs):
         raise PermanentError("all renders failed", user_message="None of the clips could be rendered. See the clip errors for details.")
@@ -466,7 +479,7 @@ def _replace_clips(s: Session, video: Video, new: list[dict]) -> None:
     used = set(s.scalars(select(Post.clip_id).where(Post.clip_id.in_([c.id for c in existing])))) if existing else set()
     kept = []
     for c in existing:
-        if c.status == ClipStatus.pending and c.id not in used:
+        if c.status == ClipStatus.pending and c.id not in used and not (c.meta or {}).get("external"):
             s.delete(c)
         else:
             kept.append(c)

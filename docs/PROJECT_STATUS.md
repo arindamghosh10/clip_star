@@ -72,7 +72,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Probe, 720p preview, 16 kHz audio, rotated phone videos | ✅ | |
 | Optional .srt/.vtt captions with the upload | ✅ | Skips speech recognition |
 | Add from a link: Google Drive, Dropbox or a direct file link (downloads in the background, then processing starts) | ✅ / 🟡 | Tested against a simulated file host. YouTube and social links are refused (against their terms) |
-| YouTube new-upload alerts | ⬜ | |
+| YouTube new-upload alerts (hourly; asks for the original file) | ✅ / 🟡 | Tested with a simulated channel |
 
 ### 02 Understand
 | Feature | Status | Notes |
@@ -80,8 +80,8 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Transcript from captions file | ✅ | |
 | Transcript with faster-whisper (local, word timings) | 🟡 | Model download was blocked in the sandbox; tested with a stand-in model |
 | Scene cuts, audio energy and loud moments | ✅ | |
-| Speaker detection (diarization) | ⬜ | |
-| Hosted transcription connectors (Deepgram, AssemblyAI) | ⬜ | |
+| Speaker labels (who said what) | ✅ / 🟡 | From Deepgram or AssemblyAI; shown in the transcript editor. The free Whisper engine doesn't label speakers |
+| Hosted transcription connectors (Deepgram, AssemblyAI) | ✅ / 🟡 | Tested against simulated providers; `docs/CONNECTORS.md` |
 
 ### 03 Find moments
 | Feature | Status | Notes |
@@ -91,8 +91,8 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Claude engine (structured output, fallback on refusal) | 🟡 | Tested with fake answers; needs `CLIPSTAR_ANTHROPIC_API_KEY` |
 | Ollama local-model engine | 🟡 | Tested with fake answers; needs an Ollama server |
 | Validation, one repair attempt, fall back to rules with a visible note | ✅ | |
-| OpenAI engine | ⬜ | |
-| External clipping vendors (Klap, OpusClip, Reap, Submagic, Vizard, Lumiclip, ScaleReach) | ⬜ | Plugin slot exists; connectors not built |
+| OpenAI engine (moments, post text, comments) and any OpenAI-compatible API | ✅ / 🟡 | You choose the model; tested against a simulated API |
+| External clipping: Klap and Vizard (their finished clips arrive for review) | ✅ / 🟡 | Response fields vary in their docs; verify with a real key. OpusClip, Submagic, Reap, Lumiclip, ScaleReach: no public clipping API confirmed |
 
 ### 04 Edit
 | Feature | Status | Notes |
@@ -103,7 +103,8 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | A/B versions, resumable renders, output checks, re-render job | ✅ | |
 | Punch-in zooms on key words, emojis above captions (per version or workspace default) | ✅ | Verified on real renders |
 | Background music from your own library: fades, loops, ducks under speech | ✅ | Ducking measured: music ~5× quieter while someone talks |
-| B-roll, dubbing (ElevenLabs) | ⬜ | Connectors batch |
+| B-roll cutaways from Pexels | ✅ / 🟡 | Verified on real renders with a simulated Pexels |
+| Dubbing with ElevenLabs: extra version per language, matched to account language, labelled AI-altered | ✅ / 🟡 | Verified end to end with a simulated ElevenLabs |
 
 ### 05 Package
 | Feature | Status | Notes |
@@ -175,6 +176,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Face-following crop | Test videos had no people | Process a talking-head video; check the clip framing |
 | Docker images | Builds couldn't download packages in the sandbox | `docker compose up --build`, open http://localhost:3000 |
 | Push notifications on a real phone | Needs a real browser push service | Settings → Notifications → Turn on here (iPhone: add to Home Screen first), then "Send a test" |
+| Paid connectors (OpenAI, Deepgram, AssemblyAI, ElevenLabs, Pexels, Klap, Vizard) | Need your keys; tested against simulated providers | Add one key, choose it in Engines & connectors (or use it from the clip editor), process one video |
 | Email notifications | No mail server in the sandbox | Set `CLIPSTAR_SMTP_*`, invite yourself a second user, check the invite email arrives |
 | Backups inside Docker | Same as Docker images | `docker compose exec worker python -m clipstar.backup create`, then restore into a test copy |
 
@@ -219,6 +221,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | 2026-11-06 | 8 | Measure + Learn: stats for 7 platforms + practice, follower counts, live Overview/Analytics/account performance, insights, ideas from questions, re-clip, learned scoring in Find moments, weekly reports |
 | 2026-11-06 | 9 | Setup wizard, team sign-in and roles, notifications (bell + email), paid-engine budgets, storage clean-up and archiving, backups with restore; fixed Settings save failing once the learned model existed; `docs/OPERATIONS.md` |
 | 2026-11-06 | 10 | Personal API keys, `/api/docs`, event feed, signed webhooks with retries and delivery log, MCP server package for AI assistants, Settings → Integrations; `docs/API.md` |
+| 2026-11-07 | Open items (C) | Connectors: Deepgram, AssemblyAI (speaker labels), OpenAI, Pexels B-roll, ElevenLabs dubbing, YouTube upload alerts, Klap and Vizard; `docs/CONNECTORS.md` |
 | 2026-11-07 | Open items (B) | Zooms and emojis, music library with ducking, AI-content disclosure, add videos from links |
 | 2026-11-07 | Open items (A) | Calendar drag-and-drop, custom covers, transcript editor, multiple workspaces with per-workspace roles, push notifications (installable app) |
 

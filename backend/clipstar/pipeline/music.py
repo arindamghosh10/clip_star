@@ -39,7 +39,7 @@ def import_track(src: Path, dest: Path) -> float:
     return d
 
 
-def audio_graph(has_voice: bool, music_input: int, volume: float, dur: float) -> str:
+def audio_graph(has_voice: bool, music_input: int, volume: float, dur: float, voice_input: int = 0) -> str:
     """filter_complex part producing [a]: loudness-normalised voice with music ducked underneath."""
     vol = max(0.0, min(1.0, volume))
     fade_out = max(0.0, dur - 1.2)
@@ -47,7 +47,7 @@ def audio_graph(has_voice: bool, music_input: int, volume: float, dur: float) ->
     if not has_voice:
         return f"{music},alimiter=limit=0.95[a]"
     return (
-        "[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,asplit=2[voice][sc];"
+        f"[{voice_input}:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,asplit=2[voice][sc];"
         f"{music}[bgm];"
         "[bgm][sc]sidechaincompress=threshold=0.03:ratio=6:attack=15:release=350[duck];"
         "[voice][duck]amix=inputs=2:duration=first:normalize=0,alimiter=limit=0.95[a]"

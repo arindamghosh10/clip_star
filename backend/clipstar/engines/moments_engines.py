@@ -19,7 +19,7 @@ from ..jobs.runtime import JobContext
 from ..models import Stage
 from ..pipeline.moments import Candidate, MomentSettings, Sentence, Signals, _ts, energy_candidates, rules_candidates, score_window
 from .base import EngineInfo, Health
-from .llm import EngineDeclined, claude_health, claude_json, ollama_health, ollama_json
+from .llm import EngineDeclined, claude_health, claude_json, ollama_health, ollama_json, openai_health, openai_json
 
 _EngineDeclined = EngineDeclined  # kept for older imports
 
@@ -246,3 +246,19 @@ class OllamaMomentEngine(AIMomentEngine):
 
     def call(self, system: str, prompt: str) -> str:
         return ollama_json(system, prompt, SCHEMA)
+
+
+class OpenAIMomentEngine(AIMomentEngine):
+    info = EngineInfo(
+        id="openai",
+        stage=Stage.moments,
+        name="OpenAI",
+        kind="connector",
+        description="An OpenAI model reads the transcript and picks the moments. Uses your OpenAI API key and the model you set.",
+    )
+
+    def check(self) -> Health:
+        return openai_health()
+
+    def call(self, system: str, prompt: str) -> str:
+        return openai_json(system, prompt, SCHEMA)

@@ -286,3 +286,13 @@ def test_ai_label_sent_only_where_supported(fake, req):
     )
     TikTok().publish(APP, TOK, "open1", ai)
     assert json.loads(f.calls("video/init")[0].content)["post_info"]["is_aigc"] is True
+
+
+def test_youtube_latest_uploads(fake):
+    fake(
+        [
+            ("GET", "/channels", J({"items": [{"contentDetails": {"relatedPlaylists": {"uploads": "UUchan"}}}]})),
+            ("GET", "/playlistItems", J({"items": [{"snippet": {"title": "Ep 9", "publishedAt": "2026-11-07T10:00:00Z", "resourceId": {"videoId": "v9"}}}]})),
+        ]
+    )
+    assert YouTube().latest_uploads(APP, TOK, "chan") == [{"id": "v9", "title": "Ep 9", "published_at": "2026-11-07T10:00:00Z"}]

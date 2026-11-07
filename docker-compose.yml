@@ -25,6 +25,16 @@ services:
       CLIPSTAR_WHISPER_MODEL: ${CLIPSTAR_WHISPER_MODEL:-small}
       # Optional: lets the Claude engine pick moments (choose it in Engines & connectors)
       CLIPSTAR_ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Optional paid connectors (your own keys; you pay the provider). See docs/CONNECTORS.md.
+      CLIPSTAR_OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      CLIPSTAR_OPENAI_MODEL: ${CLIPSTAR_OPENAI_MODEL:-}
+      CLIPSTAR_DEEPGRAM_API_KEY: ${CLIPSTAR_DEEPGRAM_API_KEY:-}
+      CLIPSTAR_ASSEMBLYAI_API_KEY: ${CLIPSTAR_ASSEMBLYAI_API_KEY:-}
+      CLIPSTAR_ELEVENLABS_API_KEY: ${CLIPSTAR_ELEVENLABS_API_KEY:-}
+      CLIPSTAR_PEXELS_API_KEY: ${CLIPSTAR_PEXELS_API_KEY:-}
+      CLIPSTAR_KLAP_API_KEY: ${CLIPSTAR_KLAP_API_KEY:-}
+      CLIPSTAR_VIZARD_API_KEY: ${CLIPSTAR_VIZARD_API_KEY:-}
+      CLIPSTAR_PUBLIC_MEDIA_URL: ${CLIPSTAR_PUBLIC_MEDIA_URL:-}
       # Optional: a local Ollama server for the free local-model engine
       CLIPSTAR_OLLAMA_URL: ${CLIPSTAR_OLLAMA_URL:-http://host.docker.internal:11434}
       CLIPSTAR_CORS_ORIGINS: '["http://localhost:3000"]'

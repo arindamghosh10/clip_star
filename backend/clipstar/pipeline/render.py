@@ -31,6 +31,8 @@ class RenderSpec:
     zooms: list = field(default_factory=list)  # [(start, end)] punch-ins
     emojis: list = field(default_factory=list)  # [(start, end, emoji)]
     music: dict | None = None  # {"id", "path" (absolute), "volume", "offset"}
+    broll: list = field(default_factory=list)  # [{"start", "end", "path", "id", ...}] full-screen cutaways
+    voice: str | None = None  # dubbed audio replacing the clip's own (absolute path)
 
     def key(self) -> str:
         st = get_settings()
@@ -39,6 +41,10 @@ class RenderSpec:
             extra["z"] = self.zooms
         if self.emojis:
             extra["m"] = self.emojis
+        if self.voice:
+            extra["vo"] = Path(self.voice).name
+        if self.broll:
+            extra["br"] = [[c["id"], c["start"], c["end"]] for c in self.broll]
         if self.music:
             extra["bg"] = [self.music["id"], round(self.music["volume"], 3), round(self.music.get("offset", 0), 2)]
         blob = json.dumps(
@@ -79,20 +85,31 @@ def render_clip(src: Path, src_w: int, src_h: int, has_audio: bool, spec: Render
                 args += ["-loop", "1", "-t", f"{dur:.3f}", "-i", str(png)]
                 overlays.append((next_input, 1920 - margin - 330, a, b))
                 next_input += 1
+        cutaways = []
+        for c in spec.broll:
+            if Path(c["path"]).exists():
+                args += ["-t", f"{c['end'] - c['start'] + 0.5:.2f}", "-i", c["path"]]
+                cutaways.append((next_input, c["start"], c["end"]))
+                next_input += 1
+        voice_input = 0 if has_audio else None
+        if spec.voice and Path(spec.voice).exists():
+            args += ["-i", spec.voice]
+            voice_input = next_input
+            next_input += 1
         music_input = None
         if spec.music and Path(spec.music["path"]).exists():
             # loop the track if it's shorter than the clip
             args += ["-stream_loop", "-1", "-ss", f"{spec.music.get('offset', 0):.2f}", "-t", f"{dur:.3f}", "-i", spec.music["path"]]
             music_input = next_input
             next_input += 1
-        graph = video_filter(spec.layout, src_w, src_h, str(ass), zoom_expr(spec.zooms), overlays)
+        graph = video_filter(spec.layout, src_w, src_h, str(ass), zoom_expr(spec.zooms), overlays, cutaways)
         if music_input is not None:
-            graph += ";" + audio_graph(has_audio, music_input, spec.music["volume"], dur)
+            graph += ";" + audio_graph(voice_input is not None, music_input, spec.music["volume"], dur, voice_input or 0)
             args += ["-filter_complex", graph, "-map", "[v]", "-map", "[a]"]
         else:
             args += ["-filter_complex", graph, "-map", "[v]"]
-            if has_audio:
-                args += ["-map", "0:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000"]
+            if voice_input is not None:
+                args += ["-map", f"{voice_input}:a:0", "-af", "loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,apad"]
             else:
                 args += ["-map", "1:a:0"]
         tmp_out = workdir / "out.mp4"

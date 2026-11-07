@@ -20,7 +20,7 @@ from .deps import authorize, get_workspace, principal
 public = APIRouter(prefix="/api/auth", tags=["auth"])
 router = APIRouter(prefix="/api", tags=["auth"], dependencies=[Depends(authorize)])
 
-NOTIFY_KINDS = ["needs_approval", "post_problem", "reconnect", "video_failed", "video_ready", "report", "budget", "storage", "lead", "backup", "webhook"]
+NOTIFY_KINDS = ["needs_approval", "post_problem", "reconnect", "video_failed", "video_ready", "report", "budget", "storage", "lead", "backup", "webhook", "new_upload"]
 
 
 def user_out(u: User, m: Membership | None = None) -> dict:

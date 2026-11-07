@@ -12,6 +12,7 @@ Ingest → Understand → Find moments → Edit → Package → Publish → Enga
 
 - Design and reliability rules: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - API, webhooks and AI assistants (MCP): [`docs/API.md`](docs/API.md)
+- Paid connectors with your own keys (OpenAI, Deepgram, AssemblyAI, ElevenLabs, Pexels, Klap, Vizard): [`docs/CONNECTORS.md`](docs/CONNECTORS.md)
 - Running it day to day (team, email, budgets, disk, backups): [`docs/OPERATIONS.md`](docs/OPERATIONS.md)
 - **What is planned and what is built:** [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) (kept up to date every phase)
 

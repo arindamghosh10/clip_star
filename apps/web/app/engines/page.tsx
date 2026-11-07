@@ -11,7 +11,7 @@ import { usePoll } from "@/lib/usePoll";
 // Stages that run on built-in tools today (no choice to make yet).
 const BUILT_IN: Record<string, string> = {
   ingest: "FFmpeg (built in): checks the file, makes a 720p preview copy and extracts audio.",
-  edit: "FFmpeg + OpenCV (built in): vertical reframing, word-by-word captions, hook title, loudness levelling.",
+  edit: "FFmpeg + OpenCV (built in): vertical reframing, word-by-word captions, hook title, zooms and emojis, your music (ducked under speech), loudness levelling. Optional: B-roll from Pexels and dubbing with ElevenLabs (your keys).",
   publish: "Official platform APIs (built in): YouTube, Instagram, Facebook, Threads, TikTok, X, LinkedIn, Pinterest. Set up in Settings → Platform apps.",
   measure: "Official platform APIs (built in): views, watch time, shares and follows, 1 hour to 7 days after each post.",
   learn: "Built in: insights, weekly reports and a per-creator scoring model that only switches on when it beats the built-in rules.",

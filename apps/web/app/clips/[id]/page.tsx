@@ -96,6 +96,7 @@ export default function ClipEditor() {
       </div>
       <Variants clip={c} onSave={save} />
       <Disclosure clip={c} onSave={save} />
+      <Dubbing clip={c} onChanged={() => clip.refresh()} />
       <CopyEditor clip={c} onSave={save} />
       <FixWord clip={c} onDone={() => (clip.refresh(), jobs.refresh())} />
     </>
@@ -165,11 +166,11 @@ function Rendered({ clip, rendering, onChanged }: { clip: ApiClip; rendering: bo
             />
           </div>
         )}
-        {clip.variants.length > 1 && (
-          <div className="flex gap-1">
-            {clip.variants.map((v) => (
-              <button key={v.id} onClick={() => setVariant(v.id)} className={cx("rounded border px-3 py-1 text-xs font-medium", variant === v.id ? "border-accent bg-accent-soft text-accent" : "border-line text-muted")}>
-                Variant {v.id}
+        {clip.variants.length + Object.keys(clip.meta.dubs ?? {}).length > 1 && (
+          <div className="flex flex-wrap justify-center gap-1">
+            {[...clip.variants.map((v) => v.id), ...Object.keys(clip.meta.dubs ?? {})].map((id) => (
+              <button key={id} onClick={() => setVariant(id)} className={cx("rounded border px-3 py-1 text-xs font-medium", variant === id ? "border-accent bg-accent-soft text-accent" : "border-line text-muted")}>
+                Variant {id}
               </button>
             ))}
           </div>
@@ -293,13 +294,13 @@ function Tri({ label, value, fallback, onChange }: { label: string; value: boole
 
 function Variants({ clip, onSave }: { clip: ApiClip; onSave: Save }) {
   const [vs, setVs] = useState<ClipVariant[]>(clip.variants);
-  const [fx, setFx] = useState<{ zoom: boolean; emoji: boolean; musicName?: string }>({ zoom: true, emoji: false });
+  const [fx, setFx] = useState<{ zoom: boolean; emoji: boolean; broll: boolean; musicName?: string }>({ zoom: true, emoji: false, broll: false });
   const [tracks, setTracks] = useState<MusicTrack[]>([]);
   useEffect(() => {
     Promise.all([api.workspace(), api.music()])
       .then(([w, ts]) => {
         setTracks(ts);
-        setFx({ zoom: w.settings.auto_zoom ?? true, emoji: w.settings.emojis ?? false, musicName: ts.find((t) => t.id === w.settings.default_music_id)?.title });
+        setFx({ zoom: w.settings.auto_zoom ?? true, emoji: w.settings.emojis ?? false, broll: w.settings.broll ?? false, musicName: ts.find((t) => t.id === w.settings.default_music_id)?.title });
       })
       .catch(() => undefined);
   }, []);
@@ -336,6 +337,7 @@ function Variants({ clip, onSave }: { clip: ApiClip; onSave: Save }) {
             <span className="flex flex-wrap items-center gap-4 text-sm sm:col-start-2 sm:col-end-5">
               <Tri label="Zoom in on key words" value={v.zoom} fallback={fx.zoom} onChange={(x) => set(i, { zoom: x })} />
               <Tri label="Emojis" value={v.emoji} fallback={fx.emoji} onChange={(x) => set(i, { emoji: x })} />
+              <Tri label="B-roll (Pexels)" value={v.broll} fallback={fx.broll} onChange={(x) => set(i, { broll: x })} />
               <label className="flex items-center gap-2">
                 Music
                 <select
@@ -372,6 +374,62 @@ function Variants({ clip, onSave }: { clip: ApiClip; onSave: Save }) {
             Save and re-render
           </Button>
         </div>
+      </div>
+    </Card>
+  );
+}
+
+function Dubbing({ clip, onChanged }: { clip: ApiClip; onChanged: () => void }) {
+  const { notify } = useStore();
+  const [info, setInfo] = useState<{ enabled: boolean; languages: Record<string, string> } | null>(null);
+  const [lang, setLang] = useState("es");
+  const [base, setBase] = useState(clip.variants[0]?.id ?? "A");
+  useEffect(() => {
+    api.dubbing().then(setInfo).catch(() => setInfo(null));
+  }, []);
+  if (!info || clip.meta.external) return null;
+  const dubs = Object.entries(clip.meta.dubs ?? {});
+  return (
+    <Card title="Dub into other languages">
+      <div className="flex flex-col gap-3 text-sm">
+        {!info.enabled ? (
+          <p className="text-muted">Dubbing uses ElevenLabs with your own key. Add CLIPSTAR_ELEVENLABS_API_KEY on the server to turn it on.</p>
+        ) : (
+          <>
+            <p className="text-muted">Makes an extra version with the voice dubbed by ElevenLabs and captions in that language. Accounts set to that language post it automatically. Dubbed clips are labelled as AI-altered.</p>
+            <span className="flex flex-wrap items-end gap-2">
+              <label className="flex flex-col gap-1">
+                <span className="text-xs text-muted">Language</span>
+                <select value={lang} onChange={(e) => setLang(e.target.value)} className="rounded border border-line bg-surface px-2 py-1.5">
+                  {Object.entries(info.languages).filter(([k]) => k !== "en").map(([k, n]) => <option key={k} value={k}>{n}</option>)}
+                </select>
+              </label>
+              {clip.variants.length > 1 && (
+                <label className="flex flex-col gap-1">
+                  <span className="text-xs text-muted">From version</span>
+                  <select value={base} onChange={(e) => setBase(e.target.value)} className="rounded border border-line bg-surface px-2 py-1.5">
+                    {clip.variants.map((v) => <option key={v.id} value={v.id}>{v.id}</option>)}
+                  </select>
+                </label>
+              )}
+              <Button variant="primary" onClick={() => api.dubClip(clip.id, lang, base).then((r) => notify(`Dubbing started: version ${r.variant} appears when it's done.`)).catch((e) => notify(e instanceof Error ? e.message : String(e)))}>
+                Dub
+              </Button>
+            </span>
+          </>
+        )}
+        {dubs.length > 0 && (
+          <ul className="flex flex-col gap-1">
+            {dubs.map(([id, d]) => (
+              <li key={id} className="flex items-center justify-between gap-2 rounded border border-line px-3 py-1.5">
+                <span>
+                  Version <b>{id}</b> · {info.languages[d.lang] ?? d.lang} {clip.meta.renders?.[id] ? "" : <span className="text-xs text-muted">(rendering…)</span>}
+                </span>
+                <Button size="sm" variant="ghost" onClick={() => api.removeDub(clip.id, id).then(() => { notify("Dubbed version removed"); onChanged(); }).catch((e) => notify(e instanceof Error ? e.message : String(e)))}>Remove</Button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </Card>
   );

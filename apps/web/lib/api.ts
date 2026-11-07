@@ -50,7 +50,7 @@ export type ApiJob = {
 };
 
 export type MusicChoice = { track_id: string | null; volume: number; offset?: number };
-export type ClipVariant = { id: string; caption_style: string; hook: string; zoom?: boolean; emoji?: boolean; music?: MusicChoice };
+export type ClipVariant = { id: string; caption_style: string; hook: string; zoom?: boolean; emoji?: boolean; broll?: boolean; music?: MusicChoice };
 export type MusicTrack = { id: string; title: string; duration_s: number; size_bytes: number; license_note: string; used_by: number; created_at: string | null };
 export type ClipRender = { key: string; duration_s: number; size_bytes: number; layout: { mode: "crop" | "fit" | "scale"; face_ratio: number } };
 
@@ -100,6 +100,7 @@ export type WorkspaceSettings = {
   comment_sync_minutes?: number;
   auto_zoom?: boolean;
   emojis?: boolean;
+  broll?: boolean;
   default_music_id?: string | null;
   music_volume?: number;
 };
@@ -135,6 +136,7 @@ export const NOTIFY_KINDS: Record<string, string> = {
   storage: "Low disk space",
   backup: "Backups",
   webhook: "A webhook was switched off",
+  new_upload: "A new video on your YouTube channel",
 };
 
 export type ApiKeyInfo = { id: string; name: string; prefix: string; role: Role; user_id: string; user_email: string | null; last_used_at: string | null; revoked: boolean; created_at: string | null };
@@ -168,6 +170,8 @@ export type ApiClip = {
     copy_engine?: string;
     auto_approved?: boolean;
     ai_content?: boolean;
+    dubs?: Record<string, { lang: string; base: string; created_at?: string }>;
+    external?: string;
   };
   created_at: string;
 };
@@ -462,6 +466,11 @@ export const api = {
     return request<MusicTrack>("/api/music", { method: "POST", body: form });
   },
   deleteMusic: (id: string) => request<void>(`/api/music/${id}`, json("DELETE")),
+  dubbing: () => request<{ enabled: boolean; languages: Record<string, string> }>("/api/dubbing"),
+  dubClip: (id: string, lang: string, variant: string) => request<{ job_id: string; variant: string }>(`/api/clips/${id}/dubs`, json("POST", { lang, variant })),
+  removeDub: (id: string, dub: string) => request<void>(`/api/clips/${id}/dubs/${dub}`, json("DELETE")),
+  externalClippers: () => request<{ id: string; name: string; configured: boolean }[]>("/api/external-clippers"),
+  externalClips: (videoId: string, vendor: string) => request<{ job_id: string }>(`/api/videos/${videoId}/external-clips`, json("POST", { vendor })),
   pushKey: () => request<{ public_key: string; kinds_default: string[] }>("/api/push/key"),
   pushSubscribe: (endpoint: string, keys: { p256dh: string; auth: string }) => request<{ ok: boolean; devices: number }>("/api/push/subscriptions", json("POST", { endpoint, keys })),
   pushUnsubscribe: (endpoint: string) => request<{ ok: boolean; devices: number }>("/api/push/unsubscribe", json("POST", { endpoint })),

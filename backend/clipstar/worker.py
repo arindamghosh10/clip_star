@@ -91,9 +91,11 @@ class Worker:
                 try:
                     from .learn.report import dispatch_reports
                     from .maintenance import dispatch_maintenance
+                    from .upload_alerts import dispatch as dispatch_uploads
 
                     dispatch_reports()
                     dispatch_maintenance()
+                    dispatch_uploads()
                 except Exception:
                     log.exception("report/maintenance dispatch failed")
             try:

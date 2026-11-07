@@ -133,6 +133,22 @@ class YouTube(Provider):
             pass
         return out
 
+    def latest_uploads(self, app, tokens, remote_id, limit: int = 5) -> list[dict]:
+        """The channel's newest uploads: [{id, title, published_at}] (newest first)."""
+        ch = json_of(call("GET", url(f"{API}/channels", part="contentDetails", id=remote_id), label=self.label, headers=bearer(tokens)), self.label)
+        items = ch.get("items") or []
+        playlist = ((items[0].get("contentDetails") or {}).get("relatedPlaylists") or {}).get("uploads") if items else None
+        if not playlist:
+            return []
+        d = json_of(call("GET", url(f"{API}/playlistItems", part="snippet", playlistId=playlist, maxResults=str(limit)), label=self.label, headers=bearer(tokens)), self.label)
+        out = []
+        for it in d.get("items") or []:
+            sn = it.get("snippet") or {}
+            vid = (sn.get("resourceId") or {}).get("videoId")
+            if vid:
+                out.append({"id": vid, "title": sn.get("title", ""), "published_at": sn.get("publishedAt")})
+        return out
+
     def account_followers(self, app, tokens, remote_id):
         d = json_of(call("GET", url(f"{API}/channels", part="statistics", id=remote_id), label=self.label, headers=bearer(tokens)), self.label)
         items = d.get("items", [])

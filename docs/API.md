@@ -43,6 +43,8 @@ Errors come back as JSON `{"detail": "…"}` in plain language. Show them to peo
 | Move a waiting post | `POST /api/posts/{id}/reschedule` `{"scheduled_at": "…", "force": false}`. A rule break answers `409` with `detail.warnings`; send `force: true` to move anyway |
 | Cover image | `POST /api/clips/{id}/cover/{version}` (multipart `file`), `POST …/cover/{version}/frame` `{"at_s": 2.5}`, `DELETE …/cover/{version}` |
 | Correct the transcript | `PUT /api/videos/{id}/transcript/segments` `{"edits": [{"index": 3, "text": "…"}]}` |
+| Dub a clip | `POST /api/clips/{id}/dubs` `{"lang": "es", "variant": "A"}`; `DELETE /api/clips/{id}/dubs/A-es` |
+| External clipping | `POST /api/videos/{id}/external-clips` `{"vendor": "klap"}` or `"vizard"` |
 | Workspaces | `GET /api/workspaces`. Keys work in their own workspace; the server token takes `X-ClipStar-Workspace: <id>` |
 | Comments | `GET /api/comments?state=open&category=question` |
 | Analytics | `GET /api/analytics/overview?days=7`, `GET /api/analytics/learn` |
@@ -71,6 +73,7 @@ Events are kept for 30 days.
 | `account.needs_reconnect` | `account_id`, `platform`, `handle`, `reason` |
 | `comment.received` | `comment_id`, `account_id`, `platform`, `post_id`, `author`, `message`, `category` |
 | `report.ready` | `report_id`, `summary` |
+| `youtube.new_upload` | `account_id`, `video_id`, `title`, `url`, `published_at` |
 
 ## Webhooks
 

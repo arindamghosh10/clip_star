@@ -111,3 +111,61 @@ def ollama_json(system: str, prompt: str, schema: dict) -> str:
         return r.json()["message"]["content"]
     except (KeyError, ValueError, json.JSONDecodeError) as e:
         raise EngineDeclined("Ollama returned an unexpected response") from e
+
+
+# ---------- OpenAI (and OpenAI-compatible) connector ----------
+
+_openai_transport: httpx.BaseTransport | None = None  # tests use a fake API
+
+
+def openai_health() -> Health:
+    st = get_settings()
+    if not (st.openai_api_key or os.environ.get("OPENAI_API_KEY")):
+        return Health(False, "No OpenAI API key. Set CLIPSTAR_OPENAI_API_KEY.")
+    if not st.openai_model:
+        return Health(False, "Choose a model your key can use: set CLIPSTAR_OPENAI_MODEL (one that supports structured outputs).")
+    return Health(True, f"Model: {st.openai_model}")
+
+
+def openai_json(system: str, prompt: str, schema: dict, max_tokens: int = 16000) -> str:
+    """Chat Completions with a JSON-schema response format. Same safety rules as Claude: declines fall back to the free engine."""
+    from .. import budget
+
+    st = get_settings()
+    key = st.openai_api_key or os.environ.get("OPENAI_API_KEY")
+    if not key or not st.openai_model:
+        raise EngineDeclined("the OpenAI connector isn't set up (key and model)")
+    budget.check("openai")
+    body = {
+        "model": st.openai_model,
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        "response_format": {"type": "json_schema", "json_schema": {"name": "clipstar_result", "schema": schema, "strict": False}},
+        "max_completion_tokens": max_tokens,
+    }
+    try:
+        with httpx.Client(timeout=600, transport=_openai_transport) as c:
+            r = c.post(f"{st.openai_base_url.rstrip('/')}/chat/completions", headers={"Authorization": f"Bearer {key}"}, json=body)
+    except httpx.HTTPError as e:
+        raise RetryableError(str(e), user_message="Couldn't reach the OpenAI API; will retry.") from e
+    if r.status_code == 429:
+        if "insufficient_quota" in r.text:
+            raise EngineDeclined("the OpenAI account is out of credit")
+        raise RetryableError(r.text[:300], user_message="OpenAI rate limit reached; will retry.")
+    if r.status_code >= 500:
+        raise RetryableError(r.text[:300], user_message="The OpenAI API had a server error; will retry.")
+    if r.status_code in (401, 403):
+        raise EngineDeclined("the OpenAI API key was rejected")
+    if r.status_code >= 400:
+        raise EngineDeclined(f"OpenAI rejected the request ({r.text[:200]})")
+    d = r.json()
+    u = d.get("usage") or {}
+    tin, tout = int(u.get("prompt_tokens") or 0), int(u.get("completion_tokens") or 0)
+    cost = tin / 1e6 * (st.openai_price_input_per_mtok or 0) + tout / 1e6 * (st.openai_price_output_per_mtok or 0)
+    budget.charge("openai", tin, tout, cost)
+    ch = (d.get("choices") or [{}])[0]
+    msg = ch.get("message") or {}
+    if msg.get("refusal"):
+        raise EngineDeclined("the model declined this request")
+    if ch.get("finish_reason") == "length":
+        raise EngineDeclined("the answer was cut off")
+    return msg.get("content") or ""

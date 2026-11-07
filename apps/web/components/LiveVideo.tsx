@@ -65,6 +65,7 @@ export function LiveVideo({ id }: { id: string }) {
                 <RotateCcw size={16} /> Retry
               </Button>
             ) : null}
+            {v.status === "ready" && <ExternalClipButtons videoId={v.id} />}
             {running && (
               <Button disabled={busy} onClick={() => act(() => api.cancelVideo(v.id), "Processing cancelled")}>
                 <Square size={14} /> Cancel
@@ -259,5 +260,24 @@ function Fact({ k, v }: { k: string; v: string }) {
       <dt className="text-xs text-muted">{k}</dt>
       <dd className="truncate text-lg font-semibold">{v}</dd>
     </div>
+  );
+}
+
+
+/** "Also clip with Klap / Vizard": shown only for services set up on the server. */
+function ExternalClipButtons({ videoId }: { videoId: string }) {
+  const { notify } = useStore();
+  const [vendors, setVendors] = useState<{ id: string; name: string; configured: boolean }[]>([]);
+  useEffect(() => {
+    api.externalClippers().then((v) => setVendors(v.filter((x) => x.configured))).catch(() => setVendors([]));
+  }, []);
+  return (
+    <>
+      {vendors.map((x) => (
+        <Button key={x.id} onClick={() => api.externalClips(videoId, x.id).then(() => notify(`Sent to ${x.name}. Its clips appear in Clips for review when ready.`)).catch((e) => notify(e instanceof Error ? e.message : String(e)))}>
+          Also clip with {x.name}
+        </Button>
+      ))}
+    </>
   );
 }

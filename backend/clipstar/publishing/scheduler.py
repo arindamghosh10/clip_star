@@ -25,6 +25,7 @@ class AccountInfo:
     end: str
     daily_cap: int
     status: str = "connected"
+    language: str = ""  # e.g. "Spanish" or "es": accounts get a dubbed version in their language when there is one
 
 
 @dataclass
@@ -33,6 +34,7 @@ class ClipInfo:
     title: str
     variants: list[str]  # rendered variant ids, e.g. ["A", "B"]
     preflight: dict = field(default_factory=dict)  # platform -> {"ok": bool, "problems": [...]}
+    dubs: dict = field(default_factory=dict)  # language code -> rendered dubbed version ids, e.g. {"es": ["A-es"]}
 
 
 @dataclass
@@ -48,6 +50,20 @@ class Plan:
     slots: list[Slot]
     warnings: list[str]
     skipped: list[dict]  # {"clip_id", "account_id", "reason"}
+
+
+LANG = {
+    "english": "en", "spanish": "es", "español": "es", "french": "fr", "français": "fr", "german": "de", "deutsch": "de", "italian": "it",
+    "portuguese": "pt", "português": "pt", "hindi": "hi", "japanese": "ja", "korean": "ko", "chinese": "zh", "mandarin": "zh", "arabic": "ar",
+    "russian": "ru", "turkish": "tr", "dutch": "nl", "polish": "pl", "indonesian": "id", "vietnamese": "vi", "thai": "th", "filipino": "fil",
+    "tagalog": "fil", "swedish": "sv", "ukrainian": "uk", "bengali": "bn", "tamil": "ta", "telugu": "te", "marathi": "mr", "urdu": "ur",
+}
+
+
+def lang_code(language: str) -> str:
+    """'Spanish', 'es', 'es-MX' -> 'es'."""
+    t = (language or "").strip().lower()
+    return LANG.get(t, t.split("-")[0].split("_")[0])
 
 
 def _hm(s: str) -> time:
@@ -148,6 +164,9 @@ def plan(
                 skipped.append({"clip_id": c.id, "account_id": a.id, "reason": f"{c.title}: not rendered yet."})
                 continue
             variant = c.variants[order % len(c.variants)] if variations == "ab" else c.variants[0]
+            dubs = c.dubs.get(lang_code(a.language)) or []
+            if dubs:  # this account speaks a language the clip was dubbed into
+                variant = f"{variant}-{lang_code(a.language)}" if f"{variant}-{lang_code(a.language)}" in dubs else dubs[0]
             earliest = start_at if last_for_clip is None else max(start_at, last_for_clip + timedelta(minutes=spacing_min))
             at = next_slot(a, earliest, taken[a.id], account_gap_min, quiet_hours)
             if at is None:
