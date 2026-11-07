@@ -25,6 +25,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
+      // links from push notifications and emails carry ?ws=<id>: open them in that workspace
+      const wanted = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("ws") : null;
+      if (wanted) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("ws");
+        window.history.replaceState(null, "", url.toString());
+        await api.switchWorkspace(wanted).catch(() => undefined);
+      }
       const s = await api.authState();
       setState(s);
       setError(null);

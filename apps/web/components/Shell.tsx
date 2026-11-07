@@ -106,11 +106,7 @@ function Workspace() {
   }
   return (
     <div className="flex flex-col gap-2">
-      <div className="rounded-md border border-line p-3 text-sm">
-        <div className="text-xs text-muted">Workspace</div>
-        <div className="truncate font-semibold">{ws.data?.name ?? "…"}</div>
-        <div className="mt-1 text-xs text-muted">{accounts.data ? `${accounts.data.length} account${accounts.data.length === 1 ? "" : "s"} · self-hosted` : "self-hosted"}</div>
-      </div>
+      <WorkspaceSwitcher name={ws.data?.name} accounts={accounts.data?.length} />
       {user && (
         <div className="flex items-center gap-2 px-1 text-sm">
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent-soft text-xs font-bold text-accent" aria-hidden>
@@ -123,6 +119,77 @@ function Workspace() {
           <button onClick={signOut} className="rounded p-1.5 text-muted hover:bg-paper hover:text-ink" aria-label="Sign out" title="Sign out">
             <LogOut size={16} />
           </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkspaceSwitcher({ name, accounts }: { name?: string; accounts?: number }) {
+  const { state } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const list = state?.workspaces ?? [];
+  const canCreate = !!state?.user && (state.user.is_admin || list.some((w) => w.role === "owner"));
+  const go = () => {
+    window.location.href = "/"; // fresh start: every screen reloads for the new workspace
+  };
+  async function create() {
+    try {
+      await api.createWorkspace(newName.trim());
+      go();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="w-full rounded-md border border-line p-3 text-left text-sm hover:border-accent"
+      >
+        <div className="flex items-center justify-between text-xs text-muted">
+          Workspace {list.length > 1 && <span className="rounded bg-paper px-1 font-mono">{list.length}</span>}
+        </div>
+        <div className="truncate font-semibold">{name ?? state?.workspace?.name ?? "…"}</div>
+        <div className="mt-1 text-xs text-muted">{accounts !== undefined ? `${accounts} account${accounts === 1 ? "" : "s"} · self-hosted` : "self-hosted"}</div>
+      </button>
+      {open && (
+        <div role="menu" className="absolute bottom-full left-0 z-50 mb-2 flex w-full min-w-56 flex-col gap-0.5 rounded-md border border-line bg-surface p-1.5 text-sm shadow-lg">
+          {list.map((w) => (
+            <button
+              key={w.id}
+              role="menuitem"
+              disabled={w.current}
+              onClick={() => api.switchWorkspace(w.id).then(go).catch((e) => setError(e instanceof Error ? e.message : String(e)))}
+              className={cx("flex items-center justify-between gap-2 rounded px-2.5 py-1.5 text-left", w.current ? "bg-accent-soft text-accent" : "hover:bg-paper")}
+            >
+              <span className="truncate">{w.name}</span>
+              <span className="shrink-0 text-xs text-muted">{w.role}</span>
+            </button>
+          ))}
+          {canCreate &&
+            (creating ? (
+              <form
+                className="flex flex-col gap-1.5 border-t border-line p-1.5 pt-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  create();
+                }}
+              >
+                <input autoFocus aria-label="New workspace name" placeholder="e.g. Leo Cooks" value={newName} onChange={(e) => setNewName(e.target.value)} className="rounded border border-line bg-paper px-2 py-1.5" />
+                <button type="submit" disabled={!newName.trim()} className="rounded bg-accent px-2 py-1.5 font-medium text-surface disabled:opacity-50">Create and switch</button>
+              </form>
+            ) : (
+              <button role="menuitem" onClick={() => setCreating(true)} className="rounded border-t border-line px-2.5 py-1.5 text-left text-accent hover:bg-paper">
+                + New workspace
+              </button>
+            ))}
+          {error && <p className="px-2.5 py-1 text-xs text-rec">{error}</p>}
         </div>
       )}
     </div>

@@ -235,7 +235,10 @@ def _request(s: Session, p: Post, a: Account, c: Clip) -> PublishRequest:
     pub = public_media_url(r["path"])
     if pub:
         opts["_public_video_url"] = pub
-    cover = st.abs(r["cover"]) if r.get("cover") and st.exists(r["cover"]) else None
+    from ..pipeline.covers import cover_rel
+
+    crel = cover_rel(c, p.variant)
+    cover = st.abs(crel) if crel and st.exists(crel) else None
     return PublishRequest(video=st.abs(r["path"]), cover=cover, title=title or c.title, caption=p.caption, hashtags=tags, duration_s=c.end_s - c.start_s, post_id=str(p.id), account_options=opts)
 
 

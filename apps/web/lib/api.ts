@@ -99,8 +99,9 @@ export type WorkspaceSettings = {
 };
 export type ApiWorkspace = { id: string; name: string; settings: WorkspaceSettings };
 export type Role = "owner" | "editor" | "reviewer" | "viewer";
-export type ApiUser = { id: string; email: string; name: string; role: Role; disabled: boolean; pending_invite: boolean; last_login_at: string | null; prefs: { email: boolean; kinds: string[] }; created_at: string | null };
-export type AuthState = { setup_required: boolean; user: ApiUser | null; token_required: boolean; setup_done: boolean; email_enabled: boolean; roles: Record<Role, string> };
+export type WorkspaceRef = { id: string; name: string; role: Role; current: boolean };
+export type ApiUser = { id: string; email: string; name: string; role: Role; disabled: boolean; is_admin?: boolean; pending_invite: boolean; last_login_at: string | null; prefs: { email: boolean; kinds: string[] }; created_at: string | null };
+export type AuthState = { setup_required: boolean; user: ApiUser | null; workspace: { id: string; name: string } | null; workspaces: WorkspaceRef[]; token_required: boolean; setup_done: boolean; email_enabled: boolean; roles: Record<Role, string> };
 export type ApiNotification = { id: string; kind: string; severity: "info" | "warn" | "error"; title: string; body: string; link: string | null; created_at: string; unread: boolean };
 export type BudgetSummary = {
   month_start: string;
@@ -153,6 +154,7 @@ export type ApiClip = {
     features?: Record<string, number>;
     heuristic?: number;
     renders?: Record<string, ClipRender>;
+    custom_covers?: Record<string, string>;
     render_errors?: Record<string, string>;
     words?: { start: number; end: number; word: string }[];
     preflight?: Partial<Record<PlatformId, Preflight>>;
@@ -296,7 +298,7 @@ export type Transcript = {
   language: string | null;
   duration: number;
   words_estimated: boolean;
-  segments: { start: number; end: number; text: string; speaker: string | null }[];
+  segments: { start: number; end: number; text: string; speaker: string | null; edited?: boolean }[];
 };
 
 export type Analysis = { scenes: { cuts: number[] }; energy: { window_s: number; values: number[]; peaks: number[] } };
@@ -306,7 +308,7 @@ export type Analysis = { scenes: { cuts: number[] }; energy: { window_s: number;
 export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? "").replace(/\/$/, "");
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public data?: Record<string, unknown>) {
     super(message);
   }
 }
@@ -335,15 +337,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const detail = (body as { detail?: unknown } | null)?.detail;
+    const obj = detail && typeof detail === "object" && !Array.isArray(detail) ? (detail as Record<string, unknown>) : undefined;
     const msg =
       typeof detail === "string"
         ? detail
-        : Array.isArray(detail)
+        : obj && typeof obj.message === "string"
+          ? obj.message
+          : Array.isArray(detail)
           ? detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join("; ")
           : res.status === 502 || res.status === 504 || res.status === 500
             ? "The clip_star server isn't responding. Is the backend running?"
             : `Request failed (${res.status}).`;
-    throw new ApiError(res.status, msg);
+    throw new ApiError(res.status, msg, obj);
   }
   return body as T;
 }
@@ -376,6 +381,15 @@ export const api = {
     id: string,
     body: Partial<Pick<ApiClip, "status" | "title" | "hook" | "start_s" | "end_s" | "variants">> & { copy?: Partial<Record<PlatformId, Partial<PlatformCopy>>> },
   ) => request<ApiClip>(`/api/clips/${id}`, json("PATCH", body)),
+  editTranscript: (videoId: string, edits: { index: number; text: string }[]) =>
+    request<{ segments_changed: number; clips_changed: number; rerendered?: number }>(`/api/videos/${videoId}/transcript/segments`, json("PUT", { edits })),
+  uploadCover: async (clipId: string, variant: string, file: File) => {
+    const form = new FormData();
+    form.append("file", file);
+    return request<{ variant: string; custom: boolean; key: string }>(`/api/clips/${clipId}/cover/${variant}`, { method: "POST", body: form });
+  },
+  coverFromFrame: (clipId: string, variant: string, at_s: number) => request<{ variant: string; custom: boolean; key: string }>(`/api/clips/${clipId}/cover/${variant}/frame`, json("POST", { at_s })),
+  resetCover: (clipId: string, variant: string) => request<{ variant: string; custom: boolean; key: string }>(`/api/clips/${clipId}/cover/${variant}`, json("DELETE")),
   replaceInTranscript: (videoId: string, find: string, replace: string) =>
     request<{ replaced: number; clips_changed: number }>(`/api/videos/${videoId}/transcript/replace`, json("POST", { find, replace })),
   accounts: () => request<ApiAccount[]>("/api/accounts"),
@@ -396,6 +410,7 @@ export const api = {
     const q = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== "" && v !== "all").map(([k, v]) => [k, String(v)]));
     return request<ApiPost[]>(`/api/posts${q.size ? `?${q}` : ""}`);
   },
+  reschedulePost: (id: string, scheduled_at: string, force = false) => request<{ post: ApiPost; warnings: string[] }>(`/api/posts/${id}/reschedule`, json("POST", { scheduled_at, force })),
   postAction: (id: string, action: "retry" | "cancel" | "mark-published") => request<ApiPost>(`/api/posts/${id}/${action}`, json("POST")),
   rules: () => request<ApiRule[]>("/api/rules"),
   createRule: (body: Omit<ApiRule, "id" | "created_at">) => request<ApiRule>("/api/rules", json("POST", body)),
@@ -421,10 +436,20 @@ export const api = {
   me: () => request<{ user: ApiUser | null; role: Role; via: string }>("/api/auth/me"),
   updateMe: (body: { name?: string; current_password?: string; new_password?: string; email_notifications?: boolean; kinds?: string[] }) => request<ApiUser>("/api/auth/me", json("PATCH", body)),
   users: () => request<ApiUser[]>("/api/users"),
-  inviteUser: (email: string, name: string, role: Role) => request<ApiUser & { invite_url: string; emailed: boolean }>("/api/users", json("POST", { email, name, role })),
+  inviteUser: (email: string, name: string, role: Role) => request<ApiUser & { invite_url: string | null; emailed: boolean; added_existing: boolean }>("/api/users", json("POST", { email, name, role })),
+  workspaces: () => request<WorkspaceRef[]>("/api/workspaces"),
+  createWorkspace: (name: string) => request<WorkspaceRef>("/api/workspaces", json("POST", { name })),
+  switchWorkspace: (id: string) => request<WorkspaceRef>(`/api/workspaces/${id}/switch`, json("POST")),
+  deleteWorkspace: (id: string, confirm_name: string) => request<void>(`/api/workspaces/${id}`, json("DELETE", { confirm_name })),
   reinvite: (id: string) => request<ApiUser & { invite_url: string; emailed: boolean }>(`/api/users/${id}/invite`, json("POST")),
   updateUser: (id: string, body: { role?: Role; disabled?: boolean; name?: string }) => request<ApiUser>(`/api/users/${id}`, json("PATCH", body)),
   removeUser: (id: string) => request<void>(`/api/users/${id}`, json("DELETE")),
+  pushKey: () => request<{ public_key: string; kinds_default: string[] }>("/api/push/key"),
+  pushSubscribe: (endpoint: string, keys: { p256dh: string; auth: string }) => request<{ ok: boolean; devices: number }>("/api/push/subscriptions", json("POST", { endpoint, keys })),
+  pushUnsubscribe: (endpoint: string) => request<{ ok: boolean; devices: number }>("/api/push/unsubscribe", json("POST", { endpoint })),
+  pushStatus: () => request<{ devices: number; push: boolean; kinds: string[] }>("/api/push/status"),
+  pushPrefs: (body: { push?: boolean; kinds?: string[] }) => request<{ devices: number; push: boolean; kinds: string[] }>("/api/push/prefs", json("PATCH", body)),
+  pushTest: () => request<{ sent: number; removed: number; failed: number }>("/api/push/test", json("POST")),
   notifications: () => request<{ unread: number; items: ApiNotification[] }>("/api/notifications"),
   notificationsSeen: () => request<{ ok: boolean }>("/api/notifications/seen", json("POST")),
   budget: () => request<BudgetSummary>("/api/admin/budget"),

@@ -8,7 +8,7 @@ clip_star posts through each platform's **official API**, so whoever runs clip_s
    - `CLIPSTAR_PUBLIC_API_URL` – the address the browser uses for the API (OAuth redirects come back here)
    - `CLIPSTAR_WEB_URL` – the address of the web app
 2. In clip_star go to **Settings → Platform apps**. Each platform shows the exact **redirect address** to paste into its developer console, and the permissions to request.
-3. Back up the encryption key: `CLIPSTAR_SECRET_KEY`, or the file `.secret_key` in the storage folder. Without it, saved connections can't be read and accounts must be reconnected.
+3. Back up the encryption key: `CLIPSTAR_SECRET_KEY`, or the file `.secret_key` in the storage folder (backups made by clip_star include it). Without it, saved connections can't be read and accounts must be reconnected.
 
 **Try it first without any of this:** add a *practice account* on the Accounts screen. It goes through scheduling, approval and publishing exactly like a real one, but nothing is posted. You can also make it fail on purpose (account page → Practice behaviour) to see retries, verification and reconnect prompts.
 

@@ -19,6 +19,8 @@ from ..models import (
     BatchStatus,
     Clip,
     ClipStatus,
+    Job,
+    JobStatus,
     Platform,
     Post,
     PostStatus,
@@ -315,6 +317,42 @@ def cancel_post(post_id: uuid.UUID, s: Session = Depends(get_session), ws: Works
     svc.finish_batch_if_done(s, p.batch_id)
     s.commit()
     return p
+
+
+class RescheduleIn(BaseModel):
+    scheduled_at: datetime
+    force: bool = False  # move even if it breaks a posting rule (the warnings were shown)
+
+
+@router.post("/posts/{post_id}/reschedule")
+def reschedule_post(post_id: uuid.UUID, body: RescheduleIn, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """Move one waiting post to another time. Breaking a posting rule needs force=true (answer 409 lists the reasons)."""
+    from ..publishing.scheduler import check_move
+
+    p = s.scalar(select(Post).join(Account, Account.id == Post.account_id).where(Post.id == post_id, Account.workspace_id == ws.id).with_for_update(of=Post))
+    if p is None:
+        raise HTTPException(404, "Post not found.")
+    if p.status not in (PostStatus.held, PostStatus.scheduled):
+        raise HTTPException(409, "Only posts that haven't gone out yet can be moved.")
+    at = body.scheduled_at if body.scheduled_at.tzinfo else body.scheduled_at.replace(tzinfo=timezone.utc)
+    now = datetime.now(timezone.utc)
+    if at < now + timedelta(minutes=2):
+        raise HTTPException(422, "Pick a time at least 2 minutes from now.")
+    if s.scalar(select(Job.id).where(Job.dedupe_key == f"post:{p.id}:publish", Job.status.in_([JobStatus.queued, JobStatus.running])).limit(1)):
+        raise HTTPException(409, "This post is being sent right now and can't be moved.")
+    a = s.get(Account, p.account_id)
+    st = ws.settings or {}
+    info = svc.account_info(a)
+    active = (PostStatus.held, PostStatus.scheduled, PostStatus.publishing, PostStatus.published)
+    taken = [x for (x,) in s.execute(select(func.coalesce(Post.published_at, Post.scheduled_at)).where(Post.account_id == a.id, Post.id != p.id, Post.status.in_(active)))]
+    same = [x for (x,) in s.execute(select(func.coalesce(Post.published_at, Post.scheduled_at)).where(Post.clip_id == p.clip_id, Post.account_id != a.id, Post.status.in_(active)))]
+    warnings = check_move(info, at, taken, 60, bool(st.get("quiet_hours", True)), same, int(st.get("spacing_minutes", 45)))
+    if warnings and not body.force:
+        raise HTTPException(409, {"message": "This time breaks a posting rule.", "warnings": warnings})
+    p.scheduled_at = at
+    p.last_error = ("Moved by hand: " + " ".join(warnings)) if warnings else None
+    s.commit()
+    return {"post": PostOut.model_validate(p).model_dump(mode="json"), "warnings": warnings}
 
 
 @router.post("/posts/{post_id}/mark-published", response_model=PostOut)

@@ -51,7 +51,7 @@ export default function Overview() {
       {state && !state.setup_done && can("owner") && (
         <Link href="/setup?step=1" className="flex items-center justify-between gap-3 rounded-md border border-accent/30 bg-accent-soft p-4 text-sm hover:border-accent">
           <span>
-            <span className="font-semibold">Finish setting up clip_star</span>
+            <span className="font-semibold">{(state.workspaces?.length ?? 1) > 1 ? "Finish setting up this workspace" : "Finish setting up clip_star"}</span>
             <span className="block text-muted">Creator profile, engines, accounts and your first video. A few minutes.</span>
           </span>
           <ArrowRight size={16} className="shrink-0 text-accent" />

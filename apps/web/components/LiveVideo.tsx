@@ -234,7 +234,10 @@ function Understood({ v }: { v: ApiVideo }) {
         ))}
         {transcript && transcript.segments.length > 0 && (
           <details className="rounded border border-line">
-            <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Transcript ({transcript.segments.length} lines)</summary>
+            <summary className="cursor-pointer px-3 py-2 text-sm font-medium">
+              Transcript ({transcript.segments.length} lines) ·{" "}
+              <Link href={`/videos/${v.id}/transcript`} className="text-accent">Edit</Link>
+            </summary>
             <ol className="max-h-80 overflow-y-auto border-t border-line text-sm">
               {transcript.segments.map((s, i) => (
                 <li key={i} className="grid grid-cols-[72px_minmax(0,1fr)] gap-2 border-b border-line px-3 py-1.5 last:border-0">

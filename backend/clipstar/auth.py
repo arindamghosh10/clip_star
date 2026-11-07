@@ -78,14 +78,17 @@ def users_exist(s: Session) -> bool:
     return bool(s.scalar(select(func.count(User.id))))
 
 
-def new_session(s: Session, user: User, user_agent: str = "") -> str:
+def new_session(s: Session, user: User, user_agent: str = "", workspace_id: uuid.UUID | None = None) -> str:
     raw = secrets.token_urlsafe(32)
-    s.add(UserSession(user_id=user.id, token_hash=token_hash(raw), expires_at=now() + timedelta(days=get_settings().session_days), user_agent=user_agent[:300]))
+    if workspace_id is None:
+        m = membership(s, user.id)
+        workspace_id = m.workspace_id if m else None
+    s.add(UserSession(user_id=user.id, workspace_id=workspace_id, token_hash=token_hash(raw), expires_at=now() + timedelta(days=get_settings().session_days), user_agent=user_agent[:300]))
     user.last_login_at = now()
     return raw
 
 
-def session_user(s: Session, raw: str | None) -> User | None:
+def session_row(s: Session, raw: str | None) -> tuple[UserSession, User] | None:
     if not raw:
         return None
     sess = s.scalar(select(UserSession).where(UserSession.token_hash == token_hash(raw)))
@@ -98,7 +101,30 @@ def session_user(s: Session, raw: str | None) -> User | None:
         sess.last_seen_at = now()
         sess.expires_at = now() + timedelta(days=get_settings().session_days)
         s.commit()
-    return user
+    return sess, user
+
+
+def session_user(s: Session, raw: str | None) -> User | None:
+    r = session_row(s, raw)
+    return r[1] if r else None
+
+
+def membership(s: Session, user_id: uuid.UUID, workspace_id: uuid.UUID | None = None):
+    """The person's active membership in that workspace, or (without one) their first active membership."""
+    from .models import Membership
+
+    q = select(Membership).where(Membership.user_id == user_id, Membership.disabled.is_(False))
+    if workspace_id is not None:
+        m = s.scalar(q.where(Membership.workspace_id == workspace_id))
+        if m is not None:
+            return m
+    return s.scalar(q.order_by(Membership.created_at).limit(1))
+
+
+def memberships(s: Session, user_id: uuid.UUID) -> list:
+    from .models import Membership
+
+    return list(s.scalars(select(Membership).where(Membership.user_id == user_id, Membership.disabled.is_(False)).order_by(Membership.created_at)))
 
 
 def end_sessions(s: Session, user_id: uuid.UUID, keep_hash: str | None = None) -> None:
@@ -167,10 +193,15 @@ def key_principal(s: Session, raw: str):
     u = s.get(User, k.user_id)
     if u is None or u.disabled or not u.password_hash:
         return None
+    from .models import Membership
+
+    m = s.scalar(select(Membership).where(Membership.user_id == u.id, Membership.workspace_id == k.workspace_id, Membership.disabled.is_(False)))
+    if m is None:  # removed from the key's workspace
+        return None
     if k.last_used_at is None or k.last_used_at < now() - timedelta(minutes=5):
         k.last_used_at = now()
         s.commit()
-    return Principal(lower_role(k.role, u.role), user=u, via="key", key_id=str(k.id))
+    return Principal(lower_role(k.role, m.role), user=u, via="key", key_id=str(k.id), workspace_id=k.workspace_id, membership=m)
 
 
 # ---------- permissions ----------
@@ -182,6 +213,14 @@ class Principal:
     user: User | None = None
     via: str = "session"  # session | key | token | open
     key_id: str | None = None
+    workspace_id: uuid.UUID | None = None
+    membership: object | None = None
+    session: object | None = None
+
+    @property
+    def admin(self) -> bool:
+        """Looks after the whole server (backups). The API token and first-run setup count as admin."""
+        return self.user is None or bool(self.user.is_admin)
 
     @property
     def user_id(self) -> uuid.UUID | None:
@@ -190,7 +229,7 @@ class Principal:
 
 _SAFE = {"GET", "HEAD", "OPTIONS"}
 # Paths anyone signed in may change (their own profile, notifications)
-_SELF = [r"^/api/auth/", r"^/api/notifications(/|$)", r"^/api/keys(/|$)"]
+_SELF = [r"^/api/auth/", r"^/api/notifications(/|$)", r"^/api/keys(/|$)", r"^/api/workspaces(/|$)", r"^/api/push(/|$)"]  # workspace routes check ownership themselves
 # What reviewers may do besides looking: approve/reject and fix clips, approve or stop batches and posts, handle comments.
 _REVIEWER = [r"^/api/clips/[^/]+$", r"^/api/batches/[^/]+/(approve|disable|enable|cancel)$", r"^/api/posts/[^/]+/cancel$", r"^/api/comments(/|$)"]
 # Owner only: team, platform developer apps, paid engine choice, budgets, storage policy and backups.
@@ -204,13 +243,11 @@ ROLE_HELP = {
 }
 
 
-# Owner only even to read: backup files contain the encryption key.
-_OWNER_READ = [r"^/api/admin/backups/[^/]+$"]
+# Server-wide, so for the instance admin only (backups even to read: they contain the encryption key).
+ADMIN_ONLY = [r"^/api/admin/backups(/|$)", r"^/api/admin/storage/clean$"]
 
 
 def allowed(role: Role, method: str, path: str) -> bool:
-    if role != Role.owner and any(re.search(p, path) for p in _OWNER_READ):
-        return False
     if method in _SAFE or any(re.search(p, path) for p in _SELF):
         return True
     if role == Role.owner:

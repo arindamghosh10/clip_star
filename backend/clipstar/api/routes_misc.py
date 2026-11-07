@@ -2,8 +2,9 @@ import os
 import uuid
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
@@ -258,6 +259,51 @@ def replace_in_transcript(video_id: uuid.UUID, body: TranscriptReplace, s: Sessi
     return {"replaced": count, "clips_changed": clips_changed}
 
 
+class SegmentEdit(BaseModel):
+    index: int = Field(ge=0)
+    text: str = Field(max_length=2000)
+
+
+class TranscriptEdits(BaseModel):
+    edits: list[SegmentEdit] = Field(min_length=1, max_length=2000)
+
+
+@router.put("/videos/{video_id}/transcript/segments")
+def edit_transcript(video_id: uuid.UUID, body: TranscriptEdits, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """Correct transcript lines by hand. Clips that contain an edited line get new captions and re-render."""
+    from ..pipeline.stages import enqueue_clip_render
+    from ..pipeline.transcript_edit import apply_edits
+
+    v = s.get(Video, video_id)
+    if v is None or v.workspace_id != ws.id:
+        raise HTTPException(404, "Video not found.")
+    a = s_asset(v.id, "transcript")
+    if a is None:
+        raise HTTPException(404, "This video has no transcript yet.")
+    st = get_storage()
+    tr = st.read_json(a.path)
+    try:
+        ranges = apply_edits(tr, [e.model_dump() for e in body.edits])
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    if not ranges:
+        return {"segments_changed": 0, "clips_changed": 0}
+    st.write_json(a.path, tr)
+    archived = bool((v.meta or {}).get("archived"))
+    clips_changed = 0
+    for c in s.scalars(select(Clip).where(Clip.video_id == v.id).with_for_update()):
+        if not any(r0 < c.end_s and r1 > c.start_s for r0, r1 in ranges):
+            continue
+        meta = dict(c.meta or {})
+        meta["words"] = _words_in(v, c.start_s, c.end_s)
+        c.meta = meta
+        clips_changed += 1
+        if c.status != ClipStatus.rejected and not archived:
+            enqueue_clip_render(s, c)
+    s.commit()
+    return {"segments_changed": len(ranges), "clips_changed": clips_changed, "rerendered": 0 if archived else clips_changed}
+
+
 @router.get("/clips/{clip_id}/media/{variant}")
 def clip_media(clip_id: uuid.UUID, variant: str, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
     return _render_file(_clip(s, ws, clip_id), variant, "path", "video/mp4")
@@ -265,7 +311,86 @@ def clip_media(clip_id: uuid.UUID, variant: str, s: Session = Depends(get_sessio
 
 @router.get("/clips/{clip_id}/cover/{variant}")
 def clip_cover(clip_id: uuid.UUID, variant: str, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
-    return _render_file(_clip(s, ws, clip_id), variant, "cover", "image/jpeg")
+    from ..pipeline.covers import cover_rel
+
+    rel = cover_rel(_clip(s, ws, clip_id), variant)
+    st = get_storage()
+    if not rel or not st.exists(rel):
+        raise HTTPException(404, "This clip hasn't been rendered yet.")
+    return FileResponse(st.abs(rel), media_type="image/jpeg", headers={"Cache-Control": "private, max-age=60"})
+
+
+def _set_custom_cover(s: Session, c: Clip, variant: str, rel: str | None) -> dict:
+    meta = dict(c.meta or {})
+    covers = dict(meta.get("custom_covers") or {})
+    old = covers.get(variant)
+    if rel:
+        covers[variant] = rel
+    else:
+        covers.pop(variant, None)
+    meta["custom_covers"] = covers
+    c.meta = meta
+    s.commit()
+    if old and old != rel:
+        try:
+            get_storage().abs(old).unlink(missing_ok=True)
+        except (OSError, ValueError):
+            pass
+    return {"variant": variant, "custom": bool(rel), "key": (rel or "auto").rsplit("/", 1)[-1]}
+
+
+def _variant_ok(c: Clip, variant: str) -> None:
+    if variant not in {v.get("id") for v in (c.variants or [])}:
+        raise HTTPException(404, f"This clip has no version {variant}.")
+
+
+@router.post("/clips/{clip_id}/cover/{variant}")
+async def upload_cover(clip_id: uuid.UUID, variant: str, file: UploadFile = File(...), s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """Use your own cover image (JPEG, PNG or WebP). It's fitted to 9:16 and kept through re-renders."""
+    from ..pipeline.covers import MAX_BYTES, save_cover
+
+    c = _clip(s, ws, clip_id)
+    _variant_ok(c, variant)
+    data = await file.read(MAX_BYTES + 1)
+    try:
+        rel = save_cover(c.video_id, c.id, variant, data)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    c = s.get(Clip, clip_id, with_for_update=True)
+    return _set_custom_cover(s, c, variant, rel)
+
+
+class FrameIn(BaseModel):
+    at_s: float = Field(ge=0, le=600)
+
+
+@router.post("/clips/{clip_id}/cover/{variant}/frame")
+def cover_from_frame(clip_id: uuid.UUID, variant: str, body: FrameIn, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """Use a still from the rendered clip at `at_s` seconds as the cover."""
+    from ..errors import ClipstarError
+    from ..pipeline.covers import frame_cover
+
+    c = _clip(s, ws, clip_id)
+    _variant_ok(c, variant)
+    r = ((c.meta or {}).get("renders") or {}).get(variant)
+    if not r or not get_storage().exists(r.get("path", "")):
+        raise HTTPException(409, "Render this version first.")
+    if body.at_s > c.end_s - c.start_s:
+        raise HTTPException(422, "That time is past the end of the clip.")
+    try:
+        rel = frame_cover(c.video_id, c.id, variant, r["path"], body.at_s)
+    except (ValueError, ClipstarError) as e:
+        raise HTTPException(422, getattr(e, "user_message", None) or str(e)) from e
+    c = s.get(Clip, clip_id, with_for_update=True)
+    return _set_custom_cover(s, c, variant, rel)
+
+
+@router.delete("/clips/{clip_id}/cover/{variant}")
+def reset_cover(clip_id: uuid.UUID, variant: str, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """Go back to the automatic cover."""
+    c = _clip(s, ws, clip_id)
+    c = s.get(Clip, c.id, with_for_update=True)
+    return _set_custom_cover(s, c, variant, None)
 
 
 def _render_file(c: Clip, variant: str, field: str, media_type: str):

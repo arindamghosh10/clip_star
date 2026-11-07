@@ -456,9 +456,13 @@ class Role(str, enum.Enum):
 
 
 class User(Base):
+    """A person. What they can do in each workspace is in Membership; `workspace_id`/`role`/`prefs` here are
+    their first workspace's values, kept for older code paths and migrations."""
+
     __tablename__ = "users"
     id: Mapped[uuid.UUID] = _uuid()
-    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("workspaces.id", ondelete="SET NULL"), index=True)
+    is_admin: Mapped[bool] = mapped_column(default=False, server_default=text("false"))  # runs this server: backups
     email: Mapped[str] = mapped_column(String(320), unique=True)  # stored lower-case
     name: Mapped[str] = mapped_column(String(200), default="")
     role: Mapped[Role] = mapped_column(_enum(Role, "role"), default=Role.viewer)
@@ -475,10 +479,27 @@ class User(Base):
     created_at: Mapped[datetime] = _created()
 
 
+class Membership(Base):
+    """A person's place in a workspace: their role there, and their notification settings for it."""
+
+    __tablename__ = "memberships"
+    id: Mapped[uuid.UUID] = _uuid()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    role: Mapped[Role] = mapped_column(_enum(Role, "role"), default=Role.viewer)
+    disabled: Mapped[bool] = mapped_column(default=False, server_default=text("false"))
+    notifications_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    prefs: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
+    created_at: Mapped[datetime] = _created()
+
+    __table_args__ = (UniqueConstraint("user_id", "workspace_id", name="uq_membership"),)
+
+
 class UserSession(Base):
     __tablename__ = "user_sessions"
     id: Mapped[uuid.UUID] = _uuid()
     user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    workspace_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("workspaces.id", ondelete="SET NULL"))  # the workspace this sign-in is looking at
     token_hash: Mapped[str] = mapped_column(String(128), unique=True)  # sha256 of the cookie value
     created_at: Mapped[datetime] = _created()
     last_seen_at: Mapped[datetime] = _created()
@@ -497,6 +518,7 @@ class Notification(Base):
     link: Mapped[str | None] = mapped_column(String(300))
     dedupe_key: Mapped[str | None] = mapped_column(String(200), unique=True)
     emailed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pushed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created()
 
     __table_args__ = (Index("ix_notifications_ws_created", "workspace_id", "created_at"),)
@@ -579,3 +601,18 @@ class WebhookDelivery(Base):
     error: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = _created()
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PushSubscription(Base):
+    """One browser or phone that gets push notifications for a person (Web Push)."""
+
+    __tablename__ = "push_subscriptions"
+    id: Mapped[uuid.UUID] = _uuid()
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    endpoint: Mapped[str] = mapped_column(String(1000), unique=True)
+    p256dh: Mapped[str] = mapped_column(String(200))
+    auth: Mapped[str] = mapped_column(String(100))
+    user_agent: Mapped[str] = mapped_column(String(300), default="")
+    failures: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created()

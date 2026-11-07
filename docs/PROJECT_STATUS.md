@@ -54,13 +54,13 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | First-run setup wizard (owner, profile, engines, accounts, first video) | ✅ | Open only until the owner exists; asks for the API token if one is set |
 | Team sign-in: hashed passwords, 30-day sessions, lockout after 5 wrong tries, invite links, sign out everywhere on password change or disable | ✅ | See `docs/OPERATIONS.md` |
 | Roles: owner, editor, reviewer, viewer, checked on every API call | ✅ | Always at least one owner |
-| Multiple workspaces | ⬜ | Single workspace today |
+| Multiple workspaces (one per creator or brand): own videos, accounts, team, platform apps, settings; per-workspace roles; switcher; delete with confirmation | ✅ | Instance admin (who installed it) handles server-wide backups |
 | Notifications: bell in the app, one hook for every status change, deduplicated | ✅ | Batch waiting, post problems, reconnect, video ready/failed, leads, report, budget, disk, backups |
 | Email notifications (SMTP), per-person choice of what to email | ✅ / 🟡 | Tested with a fake mail server; set `CLIPSTAR_SMTP_*` to use |
 | Webhooks (signed, retried, auto-off after 20 failures, internal addresses blocked) and an ordered event feed | ✅ | 11 event types; `docs/API.md` |
 | Personal API keys (role-capped, revocable, rate-limited) and interactive API reference at `/api/docs` | ✅ | |
 | MCP server for AI assistants (`integrations/mcp`): 21 tools, publishing/replying need explicit confirmation | ✅ | Tested in-process, over stdio against the live API, and by a contract test in the backend suite |
-| Push notifications to phones | ⬜ | Not planned yet (webhooks to a push service work today) |
+| Push notifications to phones and browsers (Web Push, installable app) with per-workspace choices | ✅ / 🟡 | Encryption and signing tested against a simulated device; try on a real phone (iPhone: add to Home Screen first) |
 | Monthly budget for paid engines; over budget the free engine takes over | ✅ | Estimated from token counts and configurable prices |
 | Storage: usage by kind, audio clean-up, rejected-render clean-up, optional archiving, purge of old records, low-disk alert | ✅ | Daily, owner sets the rules |
 | Backups: database + encryption key (+ optional media), daily with rotation, download, restore command | ✅ / 🟡 | Round-trip tested with pg_dump/pg_restore 16; Docker image install of the client tools not built in the sandbox |
@@ -117,7 +117,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Clips screen with real players, A/B switch, approve/reject/restore, re-render | ✅ | |
 | Clip editor: trim on sentences, hooks, caption style, per-platform text | ✅ | |
 | Fix a word everywhere (transcript + all captions, re-render) | ✅ | |
-| Custom cover upload, transcript editing screen | ⬜ | |
+| Custom cover (upload, or a frame from the clip; kept through re-renders) and a transcript editing screen (re-renders affected clips) | ✅ | |
 
 ### 06 Accounts and Publish
 | Feature | Status | Notes |
@@ -133,7 +133,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Posts and Calendar screens with retry / cancel / "I see it posted" | ✅ | |
 | Account groups, per-account settings, Pinterest board, YouTube visibility | ✅ | |
 | Duplicate-clip warning across many accounts | ✅ | |
-| Drag-and-drop rescheduling in the calendar | ⬜ | |
+| Drag-and-drop rescheduling in the calendar, or pick an exact time; asks before breaking posting hours, daily caps or spacing | ✅ | |
 
 ### 07 Engage · 08 Measure · 09 Learn
 | Feature | Status | Notes |
@@ -171,6 +171,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Claude / Ollama engines | No API key or Ollama server in the sandbox | Set the key or start Ollama, select the engine in Engines & connectors, process a video |
 | Face-following crop | Test videos had no people | Process a talking-head video; check the clip framing |
 | Docker images | Builds couldn't download packages in the sandbox | `docker compose up --build`, open http://localhost:3000 |
+| Push notifications on a real phone | Needs a real browser push service | Settings → Notifications → Turn on here (iPhone: add to Home Screen first), then "Send a test" |
 | Email notifications | No mail server in the sandbox | Set `CLIPSTAR_SMTP_*`, invite yourself a second user, check the invite email arrives |
 | Backups inside Docker | Same as Docker images | `docker compose exec worker python -m clipstar.backup create`, then restore into a test copy |
 
@@ -215,6 +216,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | 2026-11-06 | 8 | Measure + Learn: stats for 7 platforms + practice, follower counts, live Overview/Analytics/account performance, insights, ideas from questions, re-clip, learned scoring in Find moments, weekly reports |
 | 2026-11-06 | 9 | Setup wizard, team sign-in and roles, notifications (bell + email), paid-engine budgets, storage clean-up and archiving, backups with restore; fixed Settings save failing once the learned model existed; `docs/OPERATIONS.md` |
 | 2026-11-06 | 10 | Personal API keys, `/api/docs`, event feed, signed webhooks with retries and delivery log, MCP server package for AI assistants, Settings → Integrations; `docs/API.md` |
+| 2026-11-07 | Open items (A) | Calendar drag-and-drop, custom covers, transcript editor, multiple workspaces with per-workspace roles, push notifications (installable app) |
 
 ---
 

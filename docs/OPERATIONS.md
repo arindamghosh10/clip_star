@@ -35,6 +35,17 @@ Invite people in **Settings → Team**. Each invite is a link that works once an
 - **Behind https:** set `CLIPSTAR_COOKIE_SECURE=true`, and set `CLIPSTAR_WEB_URL` to the address people use, so invite and email links point to the right place.
 - **Scripts and automation:** these can still use `CLIPSTAR_API_TOKEN` (`Authorization: Bearer …`), with owner rights.
 
+## Workspaces
+
+A workspace holds one creator's or brand's videos, clips, accounts, platform apps, settings, team and stats. Nothing is shared between workspaces.
+
+- **Switching and creating:** use the workspace menu at the bottom of the sidebar. Owners (and the person who installed clip_star) can create workspaces.
+- **Roles:** a person can be in several workspaces with a different role in each. Inviting someone who already has a login just adds them; no new password is needed.
+- **Removing someone:** disabling or removing a person affects only that workspace.
+- **Deleting:** an owner can delete a workspace in Settings → This workspace by typing its name. This removes its files too. The last workspace on a server can't be deleted.
+- **Instance admin:** the person who installed clip_star is the instance admin. Backups and the server clean-up cover every workspace, so only they can run or download them.
+- **Scripts:** API keys belong to the workspace they were made in. The server token (`CLIPSTAR_API_TOKEN`) picks one with the `X-ClipStar-Workspace: <id>` header (default: the first).
+
 ## Notifications and email
 
 The bell shows anything that needs a person:
@@ -50,6 +61,13 @@ The bell shows anything that needs a person:
 - backup results.
 
 A burst of failures in one batch becomes a single notification per day.
+
+**Push to phones and browsers:** turn it on per device in Settings → Notifications ("Turn on here"). No third-party account is needed: the phone's own push service delivers the message, and only that device can read it.
+
+- **iPhone or iPad (iOS 16.4+):** open clip_star in Safari, tap Share → Add to Home Screen, open it from the Home Screen, then turn push on.
+- **What gets pushed:** each person chooses, per workspace. By default you get things that need you (approvals, failures, reconnects, enquiries, budget, disk, backups), not every "video ready".
+- **Keys:** the signing keys are created once in `<storage>/.vapid_key`. Back that file up with the rest; if it's lost, devices just need to turn push on again. Set `CLIPSTAR_VAPID_SUBJECT` to a `mailto:` or `https:` address you own, since some push services ask for one.
+- **Links:** a tapped notification opens the right page in the right workspace.
 
 **Email** is optional. Set these variables (they're also in `docker-compose.yml`):
 

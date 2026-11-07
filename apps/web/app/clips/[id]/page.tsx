@@ -90,7 +90,7 @@ export default function ClipEditor() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-        <Rendered clip={c} rendering={rendering} />
+        <Rendered clip={c} rendering={rendering} onChanged={() => clip.refresh()} />
         <Trim clip={c} onSave={save} />
       </div>
       <Variants clip={c} onSave={save} />
@@ -110,20 +110,59 @@ function BackLink() {
 
 type Save = (body: Parameters<typeof api.updateClip>[1], ok: string) => Promise<boolean>;
 
-function Rendered({ clip, rendering }: { clip: ApiClip; rendering: boolean }) {
+function Rendered({ clip, rendering, onChanged }: { clip: ApiClip; rendering: boolean; onChanged: () => void }) {
   const [variant, setVariant] = useState(clip.variants[0]?.id ?? "A");
+  const [coverKey, setCoverKey] = useState("");
+  const vid = useRef<HTMLVideoElement>(null);
+  const file = useRef<HTMLInputElement>(null);
+  const { notify } = useStore();
   const r = clip.meta.renders?.[variant];
+  const custom = !!clip.meta.custom_covers?.[variant];
+  const posterKey = `${r?.key ?? ""}${clip.meta.custom_covers?.[variant] ?? ""}${coverKey}`;
+  async function cover(p: Promise<{ key: string }>, ok: string) {
+    try {
+      const res = await p;
+      setCoverKey(res.key);
+      notify(ok);
+      onChanged();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : String(e));
+    }
+  }
   return (
     <Card title="Rendered clip">
       <div className="flex flex-col items-center gap-3">
         <div className="relative aspect-[9/16] w-56 max-w-full overflow-hidden rounded-lg border border-line bg-ink/90">
           {r ? (
-            <video key={r.key} controls playsInline preload="metadata" poster={clipCoverUrl(clip.id, variant, r.key)} src={clipMediaUrl(clip.id, variant, r.key)} className="h-full w-full object-cover" />
+            <video ref={vid} key={r.key} controls playsInline preload="metadata" poster={clipCoverUrl(clip.id, variant, posterKey)} src={clipMediaUrl(clip.id, variant, r.key)} className="h-full w-full object-cover" />
           ) : (
             <div className="flex h-full items-center justify-center p-3 text-center text-xs text-paper/80">{clip.meta.render_errors?.[variant] ?? "Not rendered yet"}</div>
           )}
           {rendering && <div className="absolute inset-x-0 top-0 bg-accent px-2 py-1 text-center text-xs text-surface">Updating with your changes…</div>}
         </div>
+        {r && (
+          <div className="flex w-full flex-col items-center gap-1.5 text-xs">
+            <span className="text-muted">Cover: {custom ? "your own" : "automatic"}</span>
+            <span className="flex flex-wrap justify-center gap-1">
+              <Button size="sm" onClick={() => cover(api.coverFromFrame(clip.id, variant, vid.current?.currentTime ?? 1), "Cover set from this frame")} title="Pause the video where you want, then click">
+                Use current frame
+              </Button>
+              <Button size="sm" onClick={() => file.current?.click()}>Upload image</Button>
+              {custom && <Button size="sm" variant="ghost" onClick={() => cover(api.resetCover(clip.id, variant), "Back to the automatic cover")}>Reset</Button>}
+            </span>
+            <input
+              ref={file}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                e.target.value = "";
+                if (f) cover(api.uploadCover(clip.id, variant, f), "Cover uploaded");
+              }}
+            />
+          </div>
+        )}
         {clip.variants.length > 1 && (
           <div className="flex gap-1">
             {clip.variants.map((v) => (

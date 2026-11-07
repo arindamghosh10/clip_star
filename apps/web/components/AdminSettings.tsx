@@ -6,6 +6,7 @@ import { useAuth } from "./Auth";
 import { FormError, Input, errText } from "./Form";
 import { Badge, Button, Card, EmptyNote, Toggle, cx } from "./ui";
 import { NOTIFY_KINDS, api, backupUrl, fmtBytes, fmtTime, type ApiUser, type Role, type StoragePolicy } from "@/lib/api";
+import { currentSubscription, disablePush, enablePush, pushSupport } from "@/lib/push";
 import { useStore } from "@/lib/store";
 import { usePoll } from "@/lib/usePoll";
 
@@ -97,8 +98,75 @@ export function NotificationsCard() {
             </label>
           ))}
         </div>
+        <PushSection />
       </div>
     </Card>
+  );
+}
+
+function PushSection() {
+  const { notify } = useStore();
+  const st = usePoll(api.pushStatus, { intervalMs: 60000 });
+  const [here, setHere] = useState<boolean | null>(null);
+  const [busy, setBusy] = useState(false);
+  const support = typeof window === "undefined" ? "unsupported" : pushSupport();
+  useEffect(() => {
+    currentSubscription().then((s) => setHere(!!s)).catch(() => setHere(false));
+  }, []);
+  async function run(fn: () => Promise<unknown>, ok: string) {
+    setBusy(true);
+    try {
+      await fn();
+      notify(ok);
+      st.refresh();
+      setHere(!!(await currentSubscription()));
+    } catch (e) {
+      notify(errText(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+  const kinds = st.data?.kinds ?? [];
+  return (
+    <div className="flex flex-col gap-2 border-t border-line pt-3">
+      <span className="flex items-center justify-between gap-3">
+        <span>
+          <span className="font-medium">Push to this device</span>
+          <span className="block text-xs text-muted">
+            {support === "ios-install"
+              ? "On iPhone/iPad: tap Share → Add to Home Screen, open clip_star from there, then turn this on."
+              : support === "denied"
+                ? "Notifications are blocked for this site in your browser settings."
+                : support === "unsupported"
+                  ? "This browser doesn't support push notifications."
+                  : `${st.data?.devices ?? 0} device${st.data?.devices === 1 ? "" : "s"} set up for you.`}
+          </span>
+        </span>
+        {support === "ok" &&
+          (here ? (
+            <Button size="sm" disabled={busy} onClick={() => run(disablePush, "Push turned off on this device")}>Turn off here</Button>
+          ) : (
+            <Button size="sm" variant="primary" disabled={busy || here === null} onClick={() => run(enablePush, "Push is on for this device")}>Turn on here</Button>
+          ))}
+      </span>
+      {(st.data?.devices ?? 0) > 0 && (
+        <>
+          <label className="flex items-center justify-between gap-3">
+            <span>Send me push notifications in this workspace</span>
+            <Toggle on={!!st.data?.push} onChange={() => run(() => api.pushPrefs({ push: !st.data?.push }), "Saved")} label="Push in this workspace" />
+          </label>
+          <div className={cx("grid gap-1.5 sm:grid-cols-2", !st.data?.push && "opacity-50")}>
+            {Object.entries(NOTIFY_KINDS).map(([k, label]) => (
+              <label key={k} className="flex items-center gap-2">
+                <input type="checkbox" checked={kinds.includes(k)} disabled={!st.data?.push} onChange={() => run(() => api.pushPrefs({ kinds: kinds.includes(k) ? kinds.filter((x) => x !== k) : [...kinds, k] }), "Saved")} />
+                {label}
+              </label>
+            ))}
+          </div>
+          <Button size="sm" className="self-start" disabled={busy} onClick={() => run(async () => { const r = await api.pushTest(); if (!r.sent) throw new Error("No device accepted the test. Turn push off and on again here."); }, "Test sent")}>Send a test</Button>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -117,7 +185,8 @@ export function TeamCard() {
     setError(null);
     try {
       const r = await api.inviteUser(f.email, f.name, f.role);
-      setLink({ email: r.email, url: r.invite_url, emailed: r.emailed });
+      if (r.invite_url) setLink({ email: r.email, url: r.invite_url, emailed: r.emailed });
+      else notify(`${r.email} already has a login here and was added to this workspace${r.emailed ? " (emailed)" : ""}.`);
       setF({ email: "", name: "", role: "editor" });
       users.refresh();
     } catch (err) {
@@ -136,7 +205,7 @@ export function TeamCard() {
   async function reinvite(u: ApiUser) {
     try {
       const r = await api.reinvite(u.id);
-      setLink({ email: r.email, url: r.invite_url, emailed: r.emailed });
+      if (r.invite_url) setLink({ email: r.email, url: r.invite_url, emailed: r.emailed });
     } catch (e) {
       notify(errText(e));
     }
@@ -225,8 +294,66 @@ export function TeamCard() {
 
 const KIND_LABEL: Record<string, string> = { originals: "Original videos", previews: "Previews", clips: "Clips", audio: "Audio extracts", analysis: "Transcripts & analysis", backups: "Backups", other: "Other" };
 
+export function WorkspaceCard() {
+  const { state, can, refresh } = useAuth();
+  const { notify } = useStore();
+  const [name, setName] = useState(state?.workspace?.name ?? "");
+  const [confirmName, setConfirmName] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const ws = state?.workspace;
+  if (!ws) return null;
+  const owner = can("owner");
+  const only = (state?.workspaces.length ?? 1) <= 1;
+  async function rename() {
+    try {
+      await api.updateWorkspace({ name });
+      await refresh();
+      notify("Workspace renamed");
+    } catch (e) {
+      notify(errText(e));
+    }
+  }
+  async function remove() {
+    try {
+      await api.deleteWorkspace(ws!.id, confirmName);
+      window.location.href = "/";
+    } catch (e) {
+      notify(errText(e));
+    }
+  }
+  return (
+    <Card title="This workspace">
+      <div className="flex flex-col gap-3 text-sm">
+        <p className="text-muted">Each workspace has its own videos, clips, accounts, team, platform apps, settings and stats. Use one per creator or brand. Switch between them from the menu at the bottom of the sidebar.</p>
+        <div className="flex items-end gap-2">
+          <div className="flex-1">
+            <Input id="ws-name" label="Name" value={name} disabled={!owner} onChange={(e) => setName(e.target.value)} />
+          </div>
+          {owner && <Button disabled={!name.trim() || name === ws.name} onClick={rename}>Rename</Button>}
+        </div>
+        {owner && !only && (
+          <div className="flex flex-col gap-2 border-t border-line pt-3">
+            {!deleting ? (
+              <Button variant="danger" className="self-start" onClick={() => setDeleting(true)}>Delete this workspace…</Button>
+            ) : (
+              <>
+                <p className="text-rec">This deletes every video, clip, account connection, post record and setting in “{ws.name}”, including the files. It can&apos;t be undone. Posts already on social platforms stay there.</p>
+                <Input id="ws-confirm" label={`Type ${ws.name} to confirm`} value={confirmName} onChange={(e) => setConfirmName(e.target.value)} />
+                <span className="flex gap-2">
+                  <Button variant="danger" disabled={confirmName !== ws.name} onClick={remove}>Delete forever</Button>
+                  <Button variant="ghost" onClick={() => { setDeleting(false); setConfirmName(""); }}>Keep it</Button>
+                </span>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
 export function StorageCard() {
-  const { can } = useAuth();
+  const { can, state } = useAuth();
   const { notify } = useStore();
   const u = usePoll(api.storage, { intervalMs: 60000 });
   const [p, setP] = useState<StoragePolicy | null>(null);
@@ -234,6 +361,7 @@ export function StorageCard() {
     if (u.data && !p) setP(u.data.policy);
   }, [u.data, p]);
   const owner = can("owner");
+  const admin = !state?.user || !!state.user.is_admin;
   const dirty = p && u.data && JSON.stringify(p) !== JSON.stringify(u.data.policy);
   const max = Math.max(1, ...Object.values(u.data?.by_kind ?? {}));
   async function save() {
@@ -285,7 +413,7 @@ export function StorageCard() {
             {owner && (
               <div className="flex flex-wrap gap-2">
                 <Button variant="primary" disabled={!dirty} onClick={save}>Save rules</Button>
-                <Button onClick={() => api.cleanStorage().then(() => notify("Clean-up started. See Activity.")).catch((e) => notify(errText(e)))}>Clean up now</Button>
+                {admin && <Button onClick={() => api.cleanStorage().then(() => notify("Clean-up started. See Activity.")).catch((e) => notify(errText(e)))}>Clean up now</Button>}
               </div>
             )}
           </fieldset>
@@ -296,10 +424,11 @@ export function StorageCard() {
 }
 
 export function BackupsCard() {
-  const { can } = useAuth();
+  const { state } = useAuth();
   const { notify } = useStore();
-  const b = usePoll(api.backups, { intervalMs: 30000 });
-  if (!can("owner")) return null;
+  const admin = !state?.user || !!state.user.is_admin;
+  const b = usePoll(() => (admin ? api.backups() : Promise.resolve(null)), { intervalMs: 30000, deps: [admin] });
+  if (!admin) return null; // server-wide: only the person who runs this server
   async function now(media: boolean) {
     try {
       await api.backupNow(media);

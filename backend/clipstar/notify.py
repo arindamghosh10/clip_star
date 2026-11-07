@@ -161,12 +161,18 @@ def _scan_new(s: Session, obj) -> None:
 
 
 def recipients(s: Session, ws_id: uuid.UUID, kind: str) -> list[str]:
+    from .models import Membership
+
     out = []
-    for u in s.scalars(select(User).where(User.workspace_id == ws_id, User.disabled.is_(False), User.password_hash.is_not(None))):
-        prefs = u.prefs or {}
+    rows = s.execute(
+        select(User.email, Membership.prefs).join(Membership, Membership.user_id == User.id)
+        .where(Membership.workspace_id == ws_id, Membership.disabled.is_(False), User.disabled.is_(False), User.password_hash.is_not(None))
+    )
+    for email, prefs in rows:
+        prefs = prefs or {}
         kinds = prefs.get("kinds")
         if prefs.get("email", True) and (kinds is None or kind in kinds):
-            out.append(u.email)
+            out.append(email)
     return out
 
 
@@ -197,7 +203,9 @@ def run_email(ctx) -> dict:
             return {"skipped": True}
         to = recipients(s, nt.workspace_id, nt.kind)
         subject = f"[clip_star] {nt.title}"
-        link = f"{get_settings().web_url.rstrip('/')}{nt.link}" if nt.link else get_settings().web_url
+        path = nt.link or "/"
+        path += ("&" if "?" in path else "?") + f"ws={nt.workspace_id}"  # opens in the right workspace
+        link = f"{get_settings().web_url.rstrip('/')}{path}"
         body = f"{nt.body}\n\nOpen: {link}\n\nChange which emails you get in clip_star → Settings → Notifications."
     if to:
         mailer.send(to, subject, body)

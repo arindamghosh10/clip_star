@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     claude_price_input_per_mtok: float = 4.0
     claude_price_output_per_mtok: float = 20.0
 
+    # Push notifications (Web Push). Keys are created once in <storage>/.vapid_key unless given here.
+    vapid_private_key: str | None = None  # PEM
+    vapid_subject: str | None = None  # mailto:you@example.com or https://your-site; defaults to the web address
+
     # Webhooks: block private/internal addresses unless you run receivers on your own network (e.g. n8n next to clip_star).
     webhook_allow_private: bool = False
     webhook_timeout_seconds: float = 10.0

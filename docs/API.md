@@ -37,6 +37,10 @@ Errors come back as JSON `{"detail": "…"}` in plain language. Show them to peo
 | Schedule (waits for approval) | `POST /api/batches` `{"name", "clip_ids", "account_ids" or "groups", "start_at", "variations": "off"/"ab"}` |
 | Approve, pause, resume or cancel a batch | `POST /api/batches/{id}/approve` (or `disable`, `enable`, `cancel`) |
 | Posts and their stats | `GET /api/posts?status=published` |
+| Move a waiting post | `POST /api/posts/{id}/reschedule` `{"scheduled_at": "…", "force": false}`. A rule break answers `409` with `detail.warnings`; send `force: true` to move anyway |
+| Cover image | `POST /api/clips/{id}/cover/{version}` (multipart `file`), `POST …/cover/{version}/frame` `{"at_s": 2.5}`, `DELETE …/cover/{version}` |
+| Correct the transcript | `PUT /api/videos/{id}/transcript/segments` `{"edits": [{"index": 3, "text": "…"}]}` |
+| Workspaces | `GET /api/workspaces`. Keys work in their own workspace; the server token takes `X-ClipStar-Workspace: <id>` |
 | Comments | `GET /api/comments?state=open&category=question` |
 | Analytics | `GET /api/analytics/overview?days=7`, `GET /api/analytics/learn` |
 

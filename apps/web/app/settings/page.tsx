@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
-import { BackupsCard, NotificationsCard, ProfileCard, StorageCard, TeamCard } from "@/components/AdminSettings";
+import { BackupsCard, NotificationsCard, ProfileCard, StorageCard, TeamCard, WorkspaceCard } from "@/components/AdminSettings";
 import { ApiKeysCard, WebhooksCard } from "@/components/Integrations";
 import { PlatformApps } from "@/components/PlatformApps";
 import { Button, Card, PageHeader, Toggle, cx } from "@/components/ui";
@@ -175,6 +175,7 @@ export default function Settings() {
           <p className="mt-3 text-xs text-muted">The scheduler and publisher use these for every batch.</p>
         </Card>
         <PlatformApps />
+        <WorkspaceCard />
         <ProfileCard />
         <NotificationsCard />
         <TeamCard />

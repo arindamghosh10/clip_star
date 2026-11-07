@@ -1,4 +1,6 @@
 import hmac
+import re
+import uuid
 
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
@@ -16,8 +18,17 @@ def _token_ok(request: Request) -> bool:
     return bool(token and header and hmac.compare_digest(header, f"Bearer {token}"))
 
 
+def _first_workspace(s: Session) -> Workspace:
+    ws = s.scalar(select(Workspace).order_by(Workspace.created_at).limit(1))
+    if ws is None:
+        ws = Workspace(name="My workspace", settings={})
+        s.add(ws)
+        s.commit()
+    return ws
+
+
 def principal(request: Request, s: Session = Depends(get_session)) -> auth.Principal:
-    """Who is calling. Raises 401 if nobody is signed in (and the install isn't in first-run setup)."""
+    """Who is calling, and in which workspace. Raises 401 if nobody is signed in (and this isn't first-run setup)."""
     cached = getattr(request.state, "principal", None)
     if cached is not None:
         return cached
@@ -30,13 +41,29 @@ def principal(request: Request, s: Session = Depends(get_session)) -> auth.Princ
         if not auth.rate_ok(p.key_id or "", get_settings().api_key_rate_per_minute):
             raise HTTPException(status_code=429, detail="Too many requests with this API key. Slow down and retry in a minute.", headers={"Retry-After": "60"})
     elif _token_ok(request):
-        p = auth.Principal(Role.owner, via="token")
+        ws = None
+        wanted = request.headers.get("x-clipstar-workspace")
+        if wanted:
+            try:
+                ws = s.get(Workspace, uuid.UUID(wanted))
+            except ValueError:
+                ws = None
+            if ws is None:
+                raise HTTPException(status_code=404, detail="No such workspace.")
+        p = auth.Principal(Role.owner, via="token", workspace_id=(ws or _first_workspace(s)).id)
     else:
-        user = auth.session_user(s, request.cookies.get(auth.COOKIE))
-        if user is not None:
-            p = auth.Principal(user.role, user=user)
+        row = auth.session_row(s, request.cookies.get(auth.COOKIE))
+        if row is not None:
+            sess, user = row
+            m = auth.membership(s, user.id, sess.workspace_id)
+            if m is None:
+                raise HTTPException(status_code=401, detail="You no longer have access to any workspace here. Ask an owner to add you.")
+            if sess.workspace_id != m.workspace_id:
+                sess.workspace_id = m.workspace_id
+                s.commit()
+            p = auth.Principal(m.role, user=user, workspace_id=m.workspace_id, membership=m, session=sess)
         elif not get_settings().api_token and not auth.users_exist(s):
-            p = auth.Principal(Role.owner, via="open")  # first run: open until the owner is created
+            p = auth.Principal(Role.owner, via="open", workspace_id=_first_workspace(s).id)  # first run: open until the owner is created
     if p is None:
         raise HTTPException(status_code=401, detail="Please sign in.")
     request.state.principal = p
@@ -46,8 +73,15 @@ def principal(request: Request, s: Session = Depends(get_session)) -> auth.Princ
 def authorize(request: Request, p: auth.Principal = Depends(principal)) -> auth.Principal:
     """Router dependency: role check for every route, plus a CSRF guard for browser sessions."""
     method = request.method.upper()
-    if p.via == "key" and request.url.path.startswith(("/api/keys", "/api/auth/")) and method not in ("GET", "HEAD"):
-        raise HTTPException(status_code=403, detail="API keys can't manage keys or sign-in. Use the app.")
+    path = request.url.path
+    if p.via == "key" and path.startswith(("/api/keys", "/api/auth/", "/api/workspaces")) and method not in ("GET", "HEAD"):
+        raise HTTPException(status_code=403, detail="API keys can't manage keys, sign-in or workspaces. Use the app.")
+    if any(re.search(x, path) for x in auth.ADMIN_ONLY):
+        if not p.admin:
+            raise HTTPException(status_code=403, detail="Only the person who runs this server can do this (backups and server clean-up cover every workspace).")
+        if p.via == "session" and method not in ("GET", "HEAD", "OPTIONS") and request.headers.get(auth.CSRF_HEADER) != "1":
+            raise HTTPException(status_code=403, detail="Missing request header. Reload the page and try again.")
+        return p
     if p.via == "session" and method not in ("GET", "HEAD", "OPTIONS") and request.headers.get(auth.CSRF_HEADER) != "1":
         raise HTTPException(status_code=403, detail="Missing request header. Reload the page and try again.")
     if not auth.allowed(p.role, method, request.url.path):
@@ -59,11 +93,9 @@ def authorize(request: Request, p: auth.Principal = Depends(principal)) -> auth.
 require_token = authorize
 
 
-def get_workspace(s: Session = Depends(get_session)) -> Workspace:
-    """Single-workspace mode for now: the first workspace, created on first use."""
-    ws = s.scalar(select(Workspace).order_by(Workspace.created_at).limit(1))
+def get_workspace(s: Session = Depends(get_session), p: auth.Principal = Depends(principal)) -> Workspace:
+    """The workspace this request works in (from the sign-in, the API key, or the X-ClipStar-Workspace header with the server token)."""
+    ws = s.get(Workspace, p.workspace_id) if p.workspace_id else None
     if ws is None:
-        ws = Workspace(name="My workspace", settings={})
-        s.add(ws)
-        s.commit()
+        raise HTTPException(status_code=404, detail="That workspace no longer exists. Reload the page.")
     return ws

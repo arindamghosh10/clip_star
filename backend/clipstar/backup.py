@@ -78,6 +78,9 @@ def create(media: bool = False, out: Path | None = None) -> Path:
         if r.returncode != 0:
             raise PermanentError(r.stderr[-2000:], user_message=f"The database backup failed: {r.stderr.strip()[-300:]}")
         (t / "secret_key").write_text(current_key())
+        vapid = st.storage_dir.resolve() / ".vapid_key"  # push signing key: keeps phones subscribed after a restore
+        if vapid.exists() and not st.vapid_private_key:
+            shutil.copyfile(vapid, t / "vapid_key")
         manifest = {"format": 1, "created_at": datetime.now(timezone.utc).isoformat(), "alembic_revision": _revision(), "media": media}
         (t / "manifest.json").write_text(json.dumps(manifest, indent=2))
         part = dest.with_name("." + dest.name + ".part")
@@ -85,8 +88,9 @@ def create(media: bool = False, out: Path | None = None) -> Path:
         os.close(fd)
         try:
             with tarfile.open(part, "w:gz") as tar:
-                for name in ("manifest.json", "database.dump", "secret_key"):
-                    tar.add(t / name, arcname=name)
+                for name in ("manifest.json", "database.dump", "secret_key", "vapid_key"):
+                    if (t / name).exists():
+                        tar.add(t / name, arcname=name)
                 if media:
                     videos = st.storage_dir.resolve() / "videos"
                     if videos.exists():
@@ -162,6 +166,11 @@ def restore(file: Path) -> dict:
             fd = os.open(kp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
                 f.write(key)
+        if (t / "vapid_key").exists() and not st.vapid_private_key:
+            vp = st.storage_dir.resolve() / ".vapid_key"
+            fd = os.open(vp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w") as f:
+                f.write((t / "vapid_key").read_text())
         if manifest.get("media") and (t / "media" / "videos").exists():
             dest = st.storage_dir.resolve() / "videos"
             if dest.exists():

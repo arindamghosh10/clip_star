@@ -159,3 +159,28 @@ def plan(
             order += 1
     slots.sort(key=lambda s: s.at)
     return Plan(slots, warnings, skipped)
+
+
+def check_move(a: AccountInfo, at: datetime, taken: list[datetime], gap_min: int, quiet_hours: bool, same_clip_elsewhere: list[datetime], spacing_min: int) -> list[str]:
+    """Why a hand-picked time breaks the posting rules (empty = fine). Used when someone drags a post in the calendar."""
+    out: list[str] = []
+    tz = ZoneInfo(a.timezone)
+    local = at.astimezone(tz)
+    win = None
+    for day in (local.date() - timedelta(days=1), local.date()):
+        ws, we = _window(day, a, quiet_hours)
+        if ws <= at < we:
+            win = (ws, we)
+    if win is None:
+        out.append(f"{local:%H:%M} is outside {a.handle}'s posting hours ({a.start}–{a.end}, {a.timezone}).")
+        d = local.date()
+        win = (datetime.combine(d, time(0, 0), tzinfo=tz).astimezone(timezone.utc), datetime.combine(d + timedelta(days=1), time(0, 0), tzinfo=tz).astimezone(timezone.utc))
+    n = sum(1 for x in taken if win[0] <= x < win[1])
+    if n >= a.daily_cap:
+        out.append(f"{a.handle} already has {n} posts that day (limit {a.daily_cap}); the extra one would be moved to the next day when it's due.")
+    close = [x for x in taken if abs((x - at).total_seconds()) < gap_min * 60]
+    if close:
+        out.append(f"Less than {gap_min} minutes from another post on {a.handle}.")
+    if spacing_min and any(abs((x - at).total_seconds()) < spacing_min * 60 for x in same_clip_elsewhere):
+        out.append(f"The same clip goes out on another account less than {spacing_min} minutes apart.")
+    return out
