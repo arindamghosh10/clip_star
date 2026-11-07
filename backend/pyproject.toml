@@ -20,6 +20,8 @@ dependencies = [
   "cryptography>=43,<47",
   # Web Push payload encryption (RFC 8291); small, only needs cryptography
   "http_ece>=1.2,<2",
+  # colour emoji in clips (drawn with the system emoji font)
+  "pillow>=10,<13",
 ]
 
 [project.optional-dependencies]

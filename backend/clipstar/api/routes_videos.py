@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -101,6 +102,30 @@ def upload_video(
     return _out(video, 0, _active_jobs(s, [video.id]).get(video.id), detail=True)
 
 
+class ImportIn(BaseModel):
+    url: str = Field(min_length=8, max_length=2000)
+    title: str | None = Field(default=None, max_length=300)
+
+
+@router.post("/import", response_model=VideoDetail, status_code=201)
+def import_video(body: ImportIn, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
+    """Add a video from a link (direct file, Dropbox or Google Drive). It downloads in the background, then processing starts."""
+    from ..importer import KIND, normalize
+
+    try:
+        dl, source = normalize(body.url)
+    except ValueError as e:
+        raise HTTPException(422, str(e)) from e
+    title = (body.title or "").strip()
+    video = Video(workspace_id=ws.id, title=(title or "Video from link")[:300], source_filename="(downloading)", meta={"import": {"url": body.url.strip(), "source": source}, "title_from_link": not title})
+    s.add(video)
+    s.flush()
+    queue.enqueue(s, KIND, {"video_id": str(video.id), "url": dl, "source": source}, video_id=video.id, dedupe_key=f"video:{video.id}:import", max_attempts=3)
+    s.commit()
+    s.refresh(video)
+    return _out(video, 0, _active_jobs(s, [video.id]).get(video.id), detail=True)
+
+
 @router.get("/{video_id}", response_model=VideoDetail)
 def get_video(video_id: uuid.UUID, s: Session = Depends(get_session), ws: Workspace = Depends(get_workspace)):
     v = _get(s, ws, video_id)
@@ -151,7 +176,14 @@ def retry_video(video_id: uuid.UUID, s: Session = Depends(get_session), ws: Work
         raise HTTPException(409, "Only failed or cancelled videos can be retried.")
     v.status = VideoStatus.queued
     v.error = None
-    enqueue_stage(s, v, v.stage)
+    imp = (v.meta or {}).get("import")
+    if imp and not s.scalar(select(Asset.id).where(Asset.video_id == v.id, Asset.kind == "master")):
+        from ..importer import KIND, normalize
+
+        dl, source = normalize(imp["url"])  # the download itself failed: try it again
+        queue.enqueue(s, KIND, {"video_id": str(v.id), "url": dl, "source": source}, video_id=v.id, dedupe_key=f"video:{v.id}:import", max_attempts=3)
+    else:
+        enqueue_stage(s, v, v.stage)
     s.commit()
     return get_video(video_id, s, ws)
 

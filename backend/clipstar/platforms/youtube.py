@@ -59,7 +59,7 @@ class YouTube(Provider):
         title = (req.title or req.caption.split("\n")[0] or "Short")[:100]
         body = {
             "snippet": {"title": title, "description": req.caption[:5000], "tags": req.hashtags[:15], "categoryId": req.account_options.get("category_id", "22")},
-            "status": {"privacyStatus": req.account_options.get("privacy", "public"), "selfDeclaredMadeForKids": False},
+            "status": {"privacyStatus": req.account_options.get("privacy", "public"), "selfDeclaredMadeForKids": False, **({"containsSyntheticMedia": True} if req.ai_generated else {})},
         }
         size = req.video.stat().st_size
         r = call(

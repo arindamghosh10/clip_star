@@ -92,9 +92,10 @@ def create(media: bool = False, out: Path | None = None) -> Path:
                     if (t / name).exists():
                         tar.add(t / name, arcname=name)
                 if media:
-                    videos = st.storage_dir.resolve() / "videos"
-                    if videos.exists():
-                        tar.add(videos, arcname="media/videos", filter=lambda ti: None if Path(ti.name).name.startswith(".tmp-") else ti)
+                    for sub in ("videos", "music"):
+                        d = st.storage_dir.resolve() / sub
+                        if d.exists():
+                            tar.add(d, arcname=f"media/{sub}", filter=lambda ti: None if Path(ti.name).name.startswith(".tmp-") else ti)
             os.replace(part, dest)
         finally:
             if part.exists():
@@ -171,11 +172,13 @@ def restore(file: Path) -> dict:
             fd = os.open(vp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
             with os.fdopen(fd, "w") as f:
                 f.write((t / "vapid_key").read_text())
-        if manifest.get("media") and (t / "media" / "videos").exists():
-            dest = st.storage_dir.resolve() / "videos"
-            if dest.exists():
-                shutil.rmtree(dest)
-            shutil.copytree(t / "media" / "videos", dest)
+        if manifest.get("media"):
+            for sub in ("videos", "music"):
+                if (t / "media" / sub).exists():
+                    dest = st.storage_dir.resolve() / sub
+                    if dest.exists():
+                        shutil.rmtree(dest)
+                    shutil.copytree(t / "media" / sub, dest)
     return {"restored_from": str(file), "created_at": manifest.get("created_at"), "media": bool(manifest.get("media")), "note": note}
 
 

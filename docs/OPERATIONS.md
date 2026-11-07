@@ -79,6 +79,15 @@ A burst of failures in one batch becomes a single notification per day.
 
 Each person chooses what gets emailed to them in **Settings → Notifications**. If the email server rejects the login, the error shows in Activity and the email isn't retried forever.
 
+## Adding videos from links
+
+Videos can be added from a Google Drive or Dropbox share link, or from a direct link to the file (Videos → "or add from a link"). The file downloads in the background, then processing starts.
+
+- **Sharing:** the link must be shared as "Anyone with the link".
+- **Size:** the upload size limit applies.
+- **Not allowed:** links to YouTube, TikTok, Instagram and similar sites are refused, because downloading from them breaks their terms. Upload the original file instead.
+- **Your own network:** only public internet addresses are fetched. To import from a server on your own network, such as a NAS, set `CLIPSTAR_IMPORT_ALLOW_PRIVATE=true`.
+
 ## Spending on paid engines
 
 Every call to a paid connector (Claude today) is recorded with an estimated cost, worked out from the token counts. The default price is Claude Opus 5.5 at $4 per million input tokens and $20 per million output tokens; change it with `CLIPSTAR_CLAUDE_PRICE_INPUT_PER_MTOK` and `CLIPSTAR_CLAUDE_PRICE_OUTPUT_PER_MTOK`.

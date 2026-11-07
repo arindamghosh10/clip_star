@@ -616,3 +616,17 @@ class PushSubscription(Base):
     failures: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = _created()
+
+
+class MusicTrack(Base):
+    """A background music track the creator uploaded (and confirmed they may use)."""
+
+    __tablename__ = "music_tracks"
+    id: Mapped[uuid.UUID] = _uuid()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("workspaces.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(200))
+    path: Mapped[str] = mapped_column(String(500))
+    duration_s: Mapped[float] = mapped_column(Float)
+    size_bytes: Mapped[int] = mapped_column(BigInteger)
+    license_note: Mapped[str] = mapped_column(String(500), default="")  # where it's from / licence, in the creator's words
+    created_at: Mapped[datetime] = _created()

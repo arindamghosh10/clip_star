@@ -183,3 +183,44 @@ def test_package_and_clip_editing(client, talk_video, tmp_path):
     tr = client.get(f"/api/videos/{vid}/transcript").json()
     assert "rental contract" in " ".join(s["text"] for s in tr["segments"]) and "lease" not in " ".join(s["text"] for s in tr["segments"]).lower()
     assert client.post(f"/api/videos/{vid}/transcript/replace", json={"find": "zebra", "replace": "x"}).status_code == 404
+
+
+def _frame(path, t):
+    import cv2
+
+    cap = cv2.VideoCapture(str(path))
+    cap.set(cv2.CAP_PROP_POS_MSEC, t * 1000)
+    ok, img = cap.read()
+    cap.release()
+    assert ok
+    return img
+
+
+def test_zooms_and_emojis_render(talk_video, tmp_path):
+    import numpy as np
+
+    from clipstar.pipeline.effects import pick_emojis, pick_zooms
+    from clipstar.pipeline.render import RenderSpec, render_clip
+
+    words = [{"start": 0.3, "end": 0.8, "word": "Save"}, {"start": 1.0, "end": 1.5, "word": "money"}, {"start": 3.0, "end": 3.6, "word": "never!"}]
+    layout = Layout("fit", [])
+    zooms, emojis = pick_zooms(words, 6), pick_emojis(words, 6)
+    assert zooms == [(2.95, 3.95)] and [e[2] for e in emojis] == ["💰"]
+    spec = RenderSpec(start=0, end=6, words=words, hook="", caption_style="clean", layout=layout, zooms=zooms, emojis=emojis)
+    plain = RenderSpec(start=0, end=6, words=words, hook="", caption_style="clean", layout=layout)
+    assert spec.key() != plain.key()
+    out, cover = tmp_path / "fx.mp4", tmp_path / "fx.jpg"
+    render_clip(talk_video, 1280, 720, True, spec, out, cover, lambda p: None, lambda: None)
+    out2, cover2 = tmp_path / "plain.mp4", tmp_path / "plain.jpg"
+    render_clip(talk_video, 1280, 720, True, plain, out2, cover2, lambda p: None, lambda: None)
+    info = probe(out)
+    assert (info.width, info.height) == (1080, 1920) and abs(info.duration_s - 6) < 0.5
+    # inside the zoom window the frame differs from the plain render; outside it they match closely
+    diff_in = np.abs(_frame(out, 3.5).astype(int) - _frame(out2, 3.5).astype(int))[200:1000].mean()
+    diff_out = np.abs(_frame(out, 5.5).astype(int) - _frame(out2, 5.5).astype(int))[200:1000].mean()
+    assert diff_in > diff_out * 3 and diff_in > 5
+    # the emoji shows above the captions only while it should
+    y = 1920 - 520 - 330
+    box = lambda img: img[y + 20 : y + 130, 470:610].astype(int)
+    assert np.abs(box(_frame(out, 1.5)) - box(_frame(out2, 1.5))).mean() > 20
+    assert np.abs(box(_frame(out, 5.0)) - box(_frame(out2, 5.0))).mean() < 8

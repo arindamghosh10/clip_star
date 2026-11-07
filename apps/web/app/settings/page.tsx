@@ -4,12 +4,13 @@ import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
 import { BackupsCard, NotificationsCard, ProfileCard, StorageCard, TeamCard, WorkspaceCard } from "@/components/AdminSettings";
 import { ApiKeysCard, WebhooksCard } from "@/components/Integrations";
+import { MusicLibraryCard } from "@/components/MusicLibrary";
 import { PlatformApps } from "@/components/PlatformApps";
 import { Button, Card, PageHeader, Toggle, cx } from "@/components/ui";
 import { API_BASE, PLATFORM_RULES, api, type PlatformId, type WorkspaceSettings } from "@/lib/api";
 import { useStore } from "@/lib/store";
 
-const DEFAULTS: Required<Omit<WorkspaceSettings, "auto_approve_score">> & { auto_approve_score: number | null } = {
+const DEFAULTS: Required<Omit<WorkspaceSettings, "auto_approve_score" | "default_music_id" | "music_volume">> & { auto_approve_score: number | null } = {
   niche: "",
   voice: "",
   audience: "",
@@ -32,6 +33,8 @@ const DEFAULTS: Required<Omit<WorkspaceSettings, "auto_approve_score">> & { auto
   replies_per_hour: 20,
   lead_reply: "Thanks for reaching out! The best way to contact me is the link in my bio.",
   comment_sync_minutes: 15,
+  auto_zoom: true,
+  emojis: false,
 };
 
 // Only the keys this page edits (workspace settings also hold things like the learned model and budgets).
@@ -122,6 +125,14 @@ export default function Settings() {
             <Field label="Versions per clip">
               <Choice value={String(f.variants)} options={[["1", "One"], ["2", "Two (A/B test)"]]} onChange={(v) => set("variants", Number(v) as 1 | 2)} />
             </Field>
+            <label className="flex items-center justify-between gap-3">
+              <span>Zoom in on key words (numbers, “never”, “secret”…)</span>
+              <Toggle on={f.auto_zoom} onChange={() => set("auto_zoom", !f.auto_zoom)} label="Zoom in on key words" />
+            </label>
+            <label className="flex items-center justify-between gap-3">
+              <span>Emojis above the captions (a few per clip)</span>
+              <Toggle on={f.emojis} onChange={() => set("emojis", !f.emojis)} label="Emojis" />
+            </label>
             <Field label="Caption style for version A">
               <Choice value={f.caption_style} options={[["bold-pop", "Bold, word highlight"], ["clean", "Clean, boxed"]]} onChange={(v) => set("caption_style", v as "bold-pop" | "clean")} />
             </Field>
@@ -174,6 +185,7 @@ export default function Settings() {
           </div>
           <p className="mt-3 text-xs text-muted">The scheduler and publisher use these for every batch.</p>
         </Card>
+        <MusicLibraryCard />
         <PlatformApps />
         <WorkspaceCard />
         <ProfileCard />

@@ -83,6 +83,7 @@ class PublishRequest:
     duration_s: float
     post_id: str
     account_options: dict = field(default_factory=dict)
+    ai_generated: bool = False  # disclose as altered/synthetic content where the platform's API supports it
 
 
 @dataclass
@@ -105,6 +106,11 @@ def pkce_pair() -> tuple[str, str]:
     verifier = secrets.token_urlsafe(64)[:96]
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
     return verifier, challenge
+
+
+# Platforms whose publishing API has a documented AI-content label (YouTube: status.containsSyntheticMedia,
+# TikTok: post_info.is_aigc). Elsewhere the creator has to add the label in the platform's app.
+AI_LABEL_PLATFORMS = {"youtube", "tiktok"}
 
 
 class Provider:

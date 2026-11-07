@@ -264,3 +264,25 @@ def test_meta_login_lists_pages_and_instagram_accounts(fake):
     fb = Facebook().identities(APP, t)
     assert [(i.remote_id, i.handle, i.tokens.access_token) for i in ig] == [("ig1", "@moneywithmaya", "PT1")]
     assert [i.handle for i in fb] == ["Maya Money", "Rent Facts"]
+
+
+def test_ai_label_sent_only_where_supported(fake, req):
+    import dataclasses
+
+    ai = dataclasses.replace(req, ai_generated=True)
+    f = fake([("POST", "uploadType=resumable", J({}, headers={"Location": "https://upload.test/s2"})), ("PUT", "upload.test/s2", J({"id": "v2"}))])
+    YouTube().publish(APP, TOK, "chan", ai)
+    assert json.loads(f.calls("uploadType=resumable")[0].content)["status"]["containsSyntheticMedia"] is True
+    f = fake([("POST", "uploadType=resumable", J({}, headers={"Location": "https://upload.test/s3"})), ("PUT", "upload.test/s3", J({"id": "v3"}))])
+    YouTube().publish(APP, TOK, "chan", req)
+    assert "containsSyntheticMedia" not in json.loads(f.calls("uploadType=resumable")[0].content)["status"]
+    f = fake(
+        [
+            ("POST", "creator_info/query", J({"data": {"privacy_level_options": ["PUBLIC_TO_EVERYONE"], "max_video_post_duration_sec": 600}, "error": {"code": "ok"}})),
+            ("POST", "video/init", J({"data": {"publish_id": "pub2", "upload_url": "https://upload.tiktok.test/u2"}, "error": {"code": "ok"}})),
+            ("PUT", "upload.tiktok.test", J({}, 201)),
+            ("POST", "status/fetch", J({"data": {"status": "PUBLISH_COMPLETE", "publicaly_available_post_id": [7002]}, "error": {"code": "ok"}})),
+        ]
+    )
+    TikTok().publish(APP, TOK, "open1", ai)
+    assert json.loads(f.calls("video/init")[0].content)["post_info"]["is_aigc"] is True

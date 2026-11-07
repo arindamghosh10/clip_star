@@ -72,3 +72,13 @@ def test_only_waiting_posts_move(client):
         s.execute(update(Post).where(Post.id == p["id"]).values(status="published"))
     assert client.post(f"/api/posts/{p['id']}/reschedule", json={"scheduled_at": future(5).isoformat()}).status_code == 409
     assert client.post("/api/posts/00000000-0000-0000-0000-000000000000/reschedule", json={"scheduled_at": future(5).isoformat()}).status_code == 404
+
+
+def test_disclosure_warnings_in_preview(client):
+    cid, _ = make_clip(client)
+    a = make_account(client)  # instagram: no API field for AI labels
+    y = make_account(client, handle="@yt", platform="youtube")
+    assert client.patch(f"/api/clips/{cid}", json={"ai_content": True}).status_code == 200
+    r = client.post("/api/batches/preview", json={"name": "B", "clip_ids": [cid], "account_ids": [a["id"], y["id"]], "start_at": future(1).isoformat()})
+    w = r.json()["warnings"]
+    assert any("AI-altered" in x and "instagram" in x and "youtube" not in x for x in w)

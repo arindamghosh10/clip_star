@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     render_preset: str = "veryfast"  # x264 speed/quality trade-off
     render_crf: int = 21
     caption_font: str = "DejaVu Sans"
+    emoji_font: str = "/usr/share/fonts/truetype/noto/NotoColorEmoji.ttf"  # colour emoji in clips (skipped if missing)
 
     # Publishing
     # Where the API is reachable from the browser (OAuth redirects come back here) and where the web app is.
@@ -81,6 +82,7 @@ class Settings(BaseSettings):
 
     # Webhooks: block private/internal addresses unless you run receivers on your own network (e.g. n8n next to clip_star).
     webhook_allow_private: bool = False
+    import_allow_private: bool = False  # allow "add from link" to fetch from your own network (e.g. a NAS)
     webhook_timeout_seconds: float = 10.0
     webhook_disable_after_failures: int = 20
     # Personal API keys: requests per minute per key (per API process)

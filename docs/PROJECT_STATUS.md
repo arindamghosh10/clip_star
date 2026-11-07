@@ -71,7 +71,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Upload (MP4/MOV/MKV/WebM/M4V/AVI), streamed, size limit | ✅ | Large files stream through the Caddy proxy |
 | Probe, 720p preview, 16 kHz audio, rotated phone videos | ✅ | |
 | Optional .srt/.vtt captions with the upload | ✅ | Skips speech recognition |
-| Import from Google Drive / Dropbox / links | ⬜ | Shown in prototype only |
+| Add from a link: Google Drive, Dropbox or a direct file link (downloads in the background, then processing starts) | ✅ / 🟡 | Tested against a simulated file host. YouTube and social links are refused (against their terms) |
 | YouTube new-upload alerts | ⬜ | |
 
 ### 02 Understand
@@ -101,7 +101,9 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Speaker-following crop per scene / blurred full-frame fit / vertical sources | ✅ / 🟡 | Face crop tested with a simulated detector; try on a real talking-head video |
 | Word-by-word captions (Bold) and boxed captions (Clean), hook title | ✅ | |
 | A/B versions, resumable renders, output checks, re-render job | ✅ | |
-| B-roll, zooms, emojis, music, dubbing (ElevenLabs) | ⬜ | |
+| Punch-in zooms on key words, emojis above captions (per version or workspace default) | ✅ | Verified on real renders |
+| Background music from your own library: fades, loops, ducks under speech | ✅ | Ducking measured: music ~5× quieter while someone talks |
+| B-roll, dubbing (ElevenLabs) | ⬜ | Connectors batch |
 
 ### 05 Package
 | Feature | Status | Notes |
@@ -109,7 +111,8 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | Title, caption, hashtags for 8 platforms (templates) | ✅ | |
 | Claude / Ollama copy engines with fallback to templates | 🟡 | Tested with fake answers |
 | Per-platform limit checks (preflight), banned topics, auto-approve | ✅ | Limits are conservative defaults in `pipeline/package.py`; platforms change them |
-| AI-content disclosure flag, music/copyright check | ⬜ | |
+| AI-content disclosure: per-clip flag sent as YouTube `containsSyntheticMedia` and TikTok `is_aigc`; preview reminds you to label by hand elsewhere | ✅ / 🟡 | Field names from the platforms' docs; not yet tried on real accounts |
+| Music rights | 🟡 | You confirm rights when adding a track; tracks without a licence note get a preview warning. Automatic copyright recognition is not built (platforms run their own) |
 
 ### Clip review and editing
 | Feature | Status | Notes |
@@ -216,6 +219,7 @@ Design and reliability rules: [`ARCHITECTURE.md`](ARCHITECTURE.md) · Connecting
 | 2026-11-06 | 8 | Measure + Learn: stats for 7 platforms + practice, follower counts, live Overview/Analytics/account performance, insights, ideas from questions, re-clip, learned scoring in Find moments, weekly reports |
 | 2026-11-06 | 9 | Setup wizard, team sign-in and roles, notifications (bell + email), paid-engine budgets, storage clean-up and archiving, backups with restore; fixed Settings save failing once the learned model existed; `docs/OPERATIONS.md` |
 | 2026-11-06 | 10 | Personal API keys, `/api/docs`, event feed, signed webhooks with retries and delivery log, MCP server package for AI assistants, Settings → Integrations; `docs/API.md` |
+| 2026-11-07 | Open items (B) | Zooms and emojis, music library with ducking, AI-content disclosure, add videos from links |
 | 2026-11-07 | Open items (A) | Calendar drag-and-drop, custom covers, transcript editor, multiple workspaces with per-workspace roles, push notifications (installable app) |
 
 ---

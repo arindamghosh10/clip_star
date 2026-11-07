@@ -89,10 +89,19 @@ class PlatformCopy(BaseModel):
     hashtags: list[str] = Field(default_factory=list, max_length=30)
 
 
+class MusicChoice(BaseModel):
+    track_id: uuid.UUID | None = None  # None = no music for this version (even if the workspace has a default)
+    volume: float = Field(default=0.18, ge=0.02, le=0.8)
+    offset: float = Field(default=0.0, ge=0, le=3600)  # start this far into the track
+
+
 class VariantIn(BaseModel):
     id: Literal["A", "B"]
     caption_style: Literal["bold-pop", "clean"] = "bold-pop"
     hook: str = Field(default="", max_length=60)
+    zoom: bool | None = None  # punch-in zooms on emphasis (None = workspace default)
+    emoji: bool | None = None  # emojis above the captions (None = workspace default)
+    music: MusicChoice | None = None  # None = workspace default
 
 
 class ClipPatch(BaseModel):
@@ -103,6 +112,7 @@ class ClipPatch(BaseModel):
     end_s: float | None = Field(default=None, gt=0)
     variants: list[VariantIn] | None = Field(default=None, min_length=1, max_length=2)
     copy_: dict[str, PlatformCopy] | None = Field(default=None, alias="copy")
+    ai_content: bool | None = None  # disclose as AI-altered/synthetic where platforms support a label
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -141,6 +151,11 @@ class WorkspaceSettingsIn(BaseModel):
     replies_per_hour: int | None = Field(default=None, ge=1, le=200)
     lead_reply: str | None = Field(default=None, max_length=500)
     comment_sync_minutes: int | None = Field(default=None, ge=5, le=1440)
+    # editing effects (defaults for new renders; each clip version can override)
+    auto_zoom: bool | None = None
+    emojis: bool | None = None
+    default_music_id: str | None = None  # "" to clear
+    music_volume: float | None = Field(default=None, ge=0.02, le=0.8)
     # first-run wizard finished
     setup_done: bool | None = None
 

@@ -49,7 +49,9 @@ export type ApiJob = {
   events?: { id: number; at: string; type: string; message: string; data: Record<string, unknown> }[];
 };
 
-export type ClipVariant = { id: string; caption_style: string; hook: string };
+export type MusicChoice = { track_id: string | null; volume: number; offset?: number };
+export type ClipVariant = { id: string; caption_style: string; hook: string; zoom?: boolean; emoji?: boolean; music?: MusicChoice };
+export type MusicTrack = { id: string; title: string; duration_s: number; size_bytes: number; license_note: string; used_by: number; created_at: string | null };
 export type ClipRender = { key: string; duration_s: number; size_bytes: number; layout: { mode: "crop" | "fit" | "scale"; face_ratio: number } };
 
 export type PlatformId = "youtube" | "instagram" | "facebook" | "tiktok" | "x" | "linkedin" | "threads" | "pinterest";
@@ -96,6 +98,10 @@ export type WorkspaceSettings = {
   replies_per_hour?: number;
   lead_reply?: string;
   comment_sync_minutes?: number;
+  auto_zoom?: boolean;
+  emojis?: boolean;
+  default_music_id?: string | null;
+  music_volume?: number;
 };
 export type ApiWorkspace = { id: string; name: string; settings: WorkspaceSettings };
 export type Role = "owner" | "editor" | "reviewer" | "viewer";
@@ -161,6 +167,7 @@ export type ApiClip = {
     copy_edited?: boolean;
     copy_engine?: string;
     auto_approved?: boolean;
+    ai_content?: boolean;
   };
   created_at: string;
 };
@@ -363,6 +370,7 @@ export const api = {
   health: () => request<ApiHealth>("/api/health"),
   videos: () => request<ApiVideo[]>("/api/videos"),
   video: (id: string) => request<ApiVideo>(`/api/videos/${id}`),
+  importVideo: (url: string, title?: string) => request<ApiVideo>("/api/videos/import", json("POST", { url, title })),
   transcript: (id: string) => request<Transcript>(`/api/videos/${id}/transcript`),
   analysis: (id: string) => request<Analysis>(`/api/videos/${id}/analysis`),
   retryVideo: (id: string) => request<ApiVideo>(`/api/videos/${id}/retry`, json("POST")),
@@ -379,7 +387,7 @@ export const api = {
   clip: (id: string) => request<ApiClip>(`/api/clips/${id}`),
   updateClip: (
     id: string,
-    body: Partial<Pick<ApiClip, "status" | "title" | "hook" | "start_s" | "end_s" | "variants">> & { copy?: Partial<Record<PlatformId, Partial<PlatformCopy>>> },
+    body: Partial<Pick<ApiClip, "status" | "title" | "hook" | "start_s" | "end_s" | "variants">> & { copy?: Partial<Record<PlatformId, Partial<PlatformCopy>>>; ai_content?: boolean },
   ) => request<ApiClip>(`/api/clips/${id}`, json("PATCH", body)),
   editTranscript: (videoId: string, edits: { index: number; text: string }[]) =>
     request<{ segments_changed: number; clips_changed: number; rerendered?: number }>(`/api/videos/${videoId}/transcript/segments`, json("PUT", { edits })),
@@ -444,6 +452,16 @@ export const api = {
   reinvite: (id: string) => request<ApiUser & { invite_url: string; emailed: boolean }>(`/api/users/${id}/invite`, json("POST")),
   updateUser: (id: string, body: { role?: Role; disabled?: boolean; name?: string }) => request<ApiUser>(`/api/users/${id}`, json("PATCH", body)),
   removeUser: (id: string) => request<void>(`/api/users/${id}`, json("DELETE")),
+  music: () => request<MusicTrack[]>("/api/music"),
+  uploadMusic: (file: File, title: string, license_note: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("title", title);
+    form.append("license_note", license_note);
+    form.append("confirm_rights", "true");
+    return request<MusicTrack>("/api/music", { method: "POST", body: form });
+  },
+  deleteMusic: (id: string) => request<void>(`/api/music/${id}`, json("DELETE")),
   pushKey: () => request<{ public_key: string; kinds_default: string[] }>("/api/push/key"),
   pushSubscribe: (endpoint: string, keys: { p256dh: string; auth: string }) => request<{ ok: boolean; devices: number }>("/api/push/subscriptions", json("POST", { endpoint, keys })),
   pushUnsubscribe: (endpoint: string) => request<{ ok: boolean; devices: number }>("/api/push/unsubscribe", json("POST", { endpoint })),
@@ -527,6 +545,7 @@ export const clipMediaUrl = (id: string, variant: string, key?: string) => `${AP
 export const clipCoverUrl = (id: string, variant: string, key?: string) => `${API_BASE}/api/clips/${id}/cover/${variant}${key ? `?v=${key}` : ""}`;
 
 export const apiDocsUrl = `${API_BASE}/api/docs`;
+export const musicUrl = (id: string) => `${API_BASE}/api/music/${id}/audio`;
 export const backupUrl = (name: string) => `${API_BASE}/api/admin/backups/${encodeURIComponent(name)}`;
 export const proxyUrl = (videoId: string) => `${API_BASE}/api/videos/${videoId}/proxy`;
 

@@ -25,6 +25,7 @@ from .analysis import audio_energy, detect_scenes
 from .framing import plan_layout
 from .moments import MomentSettings, Signals, build_sentences, clip_words, finalize, make_hook, overlap
 from .package import ClipContext, PackageSettings, finalize_copy
+from .effects import pick_emojis, pick_zooms
 from .render import RenderSpec, render_clip
 
 PIPELINE: list[Stage] = [Stage.ingest, Stage.understand, Stage.moments, Stage.edit, Stage.package]
@@ -256,6 +257,27 @@ def run_moments(ctx: JobContext, video: Video, assets: dict[str, Asset]) -> dict
     return {"clips": clips, "video": {"meta": {"moments": {"engine": engine_id, "count": len(clips), "notes": notes}}}}
 
 
+def _music_for(video: Video, variant: dict, wst: dict) -> dict | None:
+    """The track for this version: its own choice, else the workspace default; None for no music."""
+    from ..models import MusicTrack
+    from .music import DEFAULT_VOLUME
+
+    m = variant.get("music")
+    if m is None:  # not chosen for this version: workspace default, if any
+        tid = wst.get("default_music_id")
+        m = {"track_id": tid, "volume": wst.get("music_volume", DEFAULT_VOLUME)} if tid else None
+    if not m or not m.get("track_id"):
+        return None
+    with session_scope() as s:
+        try:
+            t = s.get(MusicTrack, uuid.UUID(str(m["track_id"])))
+        except ValueError:
+            t = None
+        if t is None or t.workspace_id != video.workspace_id:
+            return None
+        return {"id": str(t.id), "path": str(get_storage().abs(t.path)), "volume": float(m.get("volume", DEFAULT_VOLUME)), "offset": float(m.get("offset", 0.0)) % max(1.0, t.duration_s)}
+
+
 def _ws_settings(video: Video) -> dict:
     with session_scope() as s:
         ws = s.get(Workspace, video.workspace_id)
@@ -298,7 +320,15 @@ def render_clips(ctx: JobContext, video: Video, assets: dict[str, Asset], clip_i
         if cid not in layouts:
             layouts[cid] = plan_layout(stg.abs(proxy.path), a, b, cuts, pr["width"], pr["height"])
         layout = layouts[cid]
-        spec = RenderSpec(start=a, end=b, words=meta.get("words", []), hook=variant.get("hook", ""), caption_style=variant.get("caption_style", "bold-pop"), layout=layout)
+        words = meta.get("words", [])
+        wst = _ws_settings(video)
+        zoom_on = variant.get("zoom", wst.get("auto_zoom", True))
+        emoji_on = variant.get("emoji", wst.get("emojis", False))
+        spec = RenderSpec(
+            start=a, end=b, words=words, hook=variant.get("hook", ""), caption_style=variant.get("caption_style", "bold-pop"), layout=layout,
+            zooms=pick_zooms(words, b - a) if zoom_on else [], emojis=pick_emojis(words, b - a) if emoji_on else [],
+            music=_music_for(video, variant, wst),
+        )
         key = spec.key()
         vid_rel = stg.rel(video.id, f"clips/{cid}/{variant['id']}.mp4")
         cov_rel = stg.rel(video.id, f"clips/{cid}/{variant['id']}.jpg")

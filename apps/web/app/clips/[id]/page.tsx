@@ -16,6 +16,7 @@ import {
   type ApiClip,
   type ApiJob,
   type ClipVariant,
+  type MusicTrack,
   type PlatformCopy,
   type PlatformId,
   type Transcript,
@@ -94,6 +95,7 @@ export default function ClipEditor() {
         <Trim clip={c} onSave={save} />
       </div>
       <Variants clip={c} onSave={save} />
+      <Disclosure clip={c} onSave={save} />
       <CopyEditor clip={c} onSave={save} />
       <FixWord clip={c} onDone={() => (clip.refresh(), jobs.refresh())} />
     </>
@@ -277,8 +279,30 @@ function Nudge({ label, value, onChange }: { label: string; value: number; onCha
   );
 }
 
+/** On / off / follow the workspace default. */
+function Tri({ label, value, fallback, onChange }: { label: string; value: boolean | undefined; fallback: boolean; onChange: (v: boolean | undefined) => void }) {
+  const v = value ?? fallback;
+  return (
+    <label className="flex items-center gap-2">
+      <input type="checkbox" checked={v} onChange={() => onChange(!v === fallback ? undefined : !v)} />
+      {label}
+      {value === undefined && <span className="text-xs text-muted">(workspace default)</span>}
+    </label>
+  );
+}
+
 function Variants({ clip, onSave }: { clip: ApiClip; onSave: Save }) {
   const [vs, setVs] = useState<ClipVariant[]>(clip.variants);
+  const [fx, setFx] = useState<{ zoom: boolean; emoji: boolean; musicName?: string }>({ zoom: true, emoji: false });
+  const [tracks, setTracks] = useState<MusicTrack[]>([]);
+  useEffect(() => {
+    Promise.all([api.workspace(), api.music()])
+      .then(([w, ts]) => {
+        setTracks(ts);
+        setFx({ zoom: w.settings.auto_zoom ?? true, emoji: w.settings.emojis ?? false, musicName: ts.find((t) => t.id === w.settings.default_music_id)?.title });
+      })
+      .catch(() => undefined);
+  }, []);
   const savedVs = JSON.stringify(clip.variants);
   // reset only when the saved value changes, not on every refresh (keeps unsaved typing)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -309,6 +333,33 @@ function Variants({ clip, onSave }: { clip: ApiClip; onSave: Save }) {
             ) : (
               <span />
             )}
+            <span className="flex flex-wrap items-center gap-4 text-sm sm:col-start-2 sm:col-end-5">
+              <Tri label="Zoom in on key words" value={v.zoom} fallback={fx.zoom} onChange={(x) => set(i, { zoom: x })} />
+              <Tri label="Emojis" value={v.emoji} fallback={fx.emoji} onChange={(x) => set(i, { emoji: x })} />
+              <label className="flex items-center gap-2">
+                Music
+                <select
+                  aria-label={`Music for variant ${v.id}`}
+                  value={v.music === undefined ? "__default" : v.music.track_id ?? ""}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    set(i, { music: val === "__default" ? undefined : { track_id: val || null, volume: v.music?.volume ?? 0.18 } });
+                  }}
+                  className="rounded border border-line bg-surface px-2 py-1"
+                >
+                  <option value="__default">Workspace default{fx.musicName ? ` (${fx.musicName})` : " (none)"}</option>
+                  <option value="">No music</option>
+                  {tracks.map((t) => <option key={t.id} value={t.id}>{t.title}</option>)}
+                </select>
+              </label>
+              {v.music?.track_id && (
+                <label className="flex items-center gap-2">
+                  Level
+                  <input type="range" min={0.05} max={0.5} step={0.01} value={v.music.volume} onChange={(e) => set(i, { music: { ...v.music!, volume: Number(e.target.value) } })} aria-label={`Music level for variant ${v.id}`} />
+                  <span className="w-9 font-mono text-xs">{Math.round(v.music.volume * 100)}%</span>
+                </label>
+              )}
+            </span>
           </div>
         ))}
         <div className="flex flex-wrap gap-2">
@@ -322,6 +373,21 @@ function Variants({ clip, onSave }: { clip: ApiClip; onSave: Save }) {
           </Button>
         </div>
       </div>
+    </Card>
+  );
+}
+
+function Disclosure({ clip, onSave }: { clip: ApiClip; onSave: Save }) {
+  const on = !!clip.meta.ai_content;
+  return (
+    <Card title="Disclosure">
+      <label className="flex items-start gap-3 text-sm">
+        <input type="checkbox" className="mt-1" checked={on} onChange={() => onSave({ ai_content: !on }, on ? "AI label removed" : "Will be labelled as AI-altered")} />
+        <span>
+          This clip contains AI-made or AI-altered content that looks real (for example an AI voice, dubbing, or generated or altered footage).
+          <span className="block text-xs text-muted">YouTube and TikTok get the label automatically when posting. For other platforms the batch preview reminds you to add it in their app.</span>
+        </span>
+      </label>
     </Card>
   );
 }

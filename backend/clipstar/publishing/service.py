@@ -90,7 +90,34 @@ def existing_times(s: Session, account_ids: list[uuid.UUID]) -> dict[str, list[d
     return out
 
 
+def disclosure_warnings(s: Session, clips: list[Clip], accounts: list[Account]) -> list[str]:
+    """Things the creator should know before posting: AI labels a platform can't take, and music without a licence note."""
+    from ..models import MusicTrack
+    from ..platforms.base import AI_LABEL_PLATFORMS
+
+    out: list[str] = []
+    platforms = sorted({a.platform.value for a in accounts})
+    for c in clips:
+        if ai_content(c):
+            manual = [p for p in platforms if p not in AI_LABEL_PLATFORMS]
+            if manual:
+                out.append(f"“{c.title}” is marked AI-altered. {', '.join(manual)} can't take that label through their API; add it in the app after posting.")
+        for v in c.variants or []:
+            tid = (v.get("music") or {}).get("track_id")
+            if tid:
+                t = s.get(MusicTrack, uuid.UUID(tid))
+                if t is not None and not t.license_note:
+                    out.append(f"“{c.title}” uses the track “{t.title}” with no licence note. Platforms may mute or block music they recognise.")
+    return list(dict.fromkeys(out))
+
+
 def build_plan(s: Session, ws: Workspace, clips: list[Clip], accounts: list[Account], start_at: datetime, spacing_min: int | None, variations: str):
+    p = _plan(s, ws, clips, accounts, start_at, spacing_min, variations)
+    p.warnings = list(p.warnings) + disclosure_warnings(s, clips, accounts)
+    return p
+
+
+def _plan(s: Session, ws: Workspace, clips: list[Clip], accounts: list[Account], start_at: datetime, spacing_min: int | None, variations: str):
     st = ws.settings or {}
     return plan(
         [clip_info(c) for c in clips],
@@ -223,6 +250,11 @@ def _local_window_ok(a: Account, at: datetime, quiet: bool) -> datetime | None:
     return None if nxt is None or nxt <= at + timedelta(seconds=1) else nxt
 
 
+def ai_content(c: Clip) -> bool:
+    """Whether to disclose this clip as AI-altered: set by hand on the clip, or by an AI step (e.g. dubbing)."""
+    return bool((c.meta or {}).get("ai_content"))
+
+
 def _request(s: Session, p: Post, a: Account, c: Clip) -> PublishRequest:
     st = get_storage()
     r = ((c.meta or {}).get("renders") or {}).get(p.variant)
@@ -239,7 +271,7 @@ def _request(s: Session, p: Post, a: Account, c: Clip) -> PublishRequest:
 
     crel = cover_rel(c, p.variant)
     cover = st.abs(crel) if crel and st.exists(crel) else None
-    return PublishRequest(video=st.abs(r["path"]), cover=cover, title=title or c.title, caption=p.caption, hashtags=tags, duration_s=c.end_s - c.start_s, post_id=str(p.id), account_options=opts)
+    return PublishRequest(video=st.abs(r["path"]), cover=cover, title=title or c.title, caption=p.caption, hashtags=tags, duration_s=c.end_s - c.start_s, post_id=str(p.id), account_options=opts, ai_generated=ai_content(c))
 
 
 def run_publish(ctx: JobContext) -> dict:

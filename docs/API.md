@@ -28,10 +28,13 @@ Errors come back as JSON `{"detail": "…"}` in plain language. Show them to peo
 | What | Call |
 |---|---|
 | Upload a video | `POST /api/videos` (multipart: `file`, optional `title`, `captions`) |
+| Add a video from a link | `POST /api/videos/import` `{"url": "https://drive.google.com/file/d/…"}` (Drive, Dropbox or a direct file link) |
+| Music library | `GET /api/music`, `POST /api/music` (multipart `file`, `title`, `license_note`, `confirm_rights=true`), `DELETE /api/music/{id}` |
 | Videos and their progress | `GET /api/videos`, `GET /api/videos/{id}` |
 | Clips waiting for review | `GET /api/clips?status=pending` |
 | Approve or reject a clip | `PATCH /api/clips/{id}` `{"status": "approved"}` |
 | Change post text | `PATCH /api/clips/{id}` `{"copy": {"instagram": {"caption": "…"}}}` |
+| Effects, music and AI label per version | `PATCH /api/clips/{id}` `{"variants": [{"id": "A", "caption_style": "bold-pop", "hook": "…", "zoom": true, "emoji": false, "music": {"track_id": "…", "volume": 0.18}}], "ai_content": true}` |
 | Accounts | `GET /api/accounts` |
 | Preview a schedule | `POST /api/batches/preview` |
 | Schedule (waits for approval) | `POST /api/batches` `{"name", "clip_ids", "account_ids" or "groups", "start_at", "variations": "off"/"ab"}` |

@@ -88,7 +88,7 @@ class TikTok(Provider):
                     label=self.label,
                     headers=h,
                     json={
-                        "post_info": {"title": req.caption[:2200], "privacy_level": privacy, "disable_comment": False, "disable_duet": False, "disable_stitch": False},
+                        "post_info": {"title": req.caption[:2200], "privacy_level": privacy, "disable_comment": False, "disable_duet": False, "disable_stitch": False, **({"is_aigc": True} if req.ai_generated else {})},
                         "source_info": {"source": "FILE_UPLOAD", "video_size": size, "chunk_size": chunk, "total_chunk_count": count},
                     },
                 ),

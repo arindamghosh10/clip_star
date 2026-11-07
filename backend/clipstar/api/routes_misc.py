@@ -148,7 +148,11 @@ def update_clip(clip_id: uuid.UUID, body: ClipPatch, s: Session = Depends(get_se
         if len({v["id"] for v in vs}) != len(vs):
             raise HTTPException(422, "Each variant needs a different id.")
         if vs != list(c.variants or []):
-            c.variants = [{"id": v["id"], "caption_style": v["caption_style"], "hook": v["hook"].strip().upper()} for v in vs]
+            c.variants = [
+                {"id": v["id"], "caption_style": v["caption_style"], "hook": v["hook"].strip().upper(), **{k: v[k] for k in ("zoom", "emoji") if v.get(k) is not None},
+                 **({"music": {**v["music"], "track_id": str(v["music"]["track_id"]) if v["music"].get("track_id") else None}} if v.get("music") is not None else {})}
+                for v in vs
+            ]
             # drop renders of variants that no longer exist
             meta["renders"] = {k: v for k, v in (meta.get("renders") or {}).items() if k in {x["id"] for x in vs}}
             rerender = True
@@ -172,6 +176,8 @@ def update_clip(clip_id: uuid.UUID, body: ClipPatch, s: Session = Depends(get_se
         c.copy = merged
         meta["copy_edited"] = True
 
+    if "ai_content" in data:
+        meta["ai_content"] = bool(data.pop("ai_content"))
     for k, v in data.items():
         setattr(c, k, v)
     if isinstance(c.copy, dict) and all(isinstance(v, dict) for v in c.copy.values()):

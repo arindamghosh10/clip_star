@@ -445,3 +445,6 @@ def delete_workspace(workspace_id: uuid.UUID, body: DeleteWorkspaceIn, s: Sessio
     s.commit()
     for vid in video_ids:
         get_storage().delete_video(vid)
+    import shutil
+
+    shutil.rmtree(get_storage().abs(f"music/{workspace_id}"), ignore_errors=True)

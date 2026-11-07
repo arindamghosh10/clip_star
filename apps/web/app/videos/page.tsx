@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRef, useState } from "react";
-import { AlertTriangle, CloudUpload, FileText, X } from "lucide-react";
+import { AlertTriangle, CloudUpload, FileText, Link2, X } from "lucide-react";
 import { Badge, Button, Card, EmptyNote, PageHeader, Progress } from "@/components/ui";
 import { STAGES } from "@/lib/data";
 import { api, fmtBytes, fmtDuration, fmtTime, uploadVideo, type ApiVideo, type VideoStatus } from "@/lib/api";
@@ -89,6 +89,7 @@ export default function Videos() {
             <Button variant="primary" onClick={() => fileInput.current?.click()}>
               <CloudUpload size={16} /> Choose file
             </Button>
+            <FromLink onDone={() => refresh()} />
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -192,5 +193,40 @@ function VideoRow({ v }: { v: ApiVideo }) {
         </div>
       </Link>
     </li>
+  );
+}
+
+
+function FromLink({ onDone }: { onDone: () => void }) {
+  const { notify } = useStore();
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  async function go(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await api.importVideo(url.trim());
+      setUrl("");
+      notify("Downloading the video. Processing starts when it's in.");
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <form onSubmit={go} className="flex w-full max-w-xl flex-col gap-1.5">
+      <span className="text-xs text-muted">or add from a link: Google Drive, Dropbox, or a direct link to the file</span>
+      <span className="flex gap-2">
+        <input type="url" aria-label="Video link" placeholder="https://drive.google.com/file/d/…" value={url} onChange={(e) => setUrl(e.target.value)} className="min-w-0 flex-1 rounded border border-line bg-paper px-3 py-2 text-sm" />
+        <Button type="submit" disabled={!url.trim() || busy}>
+          <Link2 size={14} /> {busy ? "Adding…" : "Add"}
+        </Button>
+      </span>
+      {error && <span role="alert" className="text-left text-xs text-rec">{error}</span>}
+    </form>
   );
 }
