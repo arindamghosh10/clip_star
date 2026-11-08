@@ -157,6 +157,18 @@ Restoring replaces the current database. If the backup includes media, it also r
 - **Encryption key:** if you set `CLIPSTAR_SECRET_KEY` yourself, set it to the key inside the backup (the `secret_key` file). Otherwise connected accounts must be reconnected.
 - **Database version:** `pg_dump` and `pg_restore` must be the same major version as the database or newer. The Docker image ships PostgreSQL 16 client tools to match the `db` service.
 
+## Demo workspace
+
+To show clip_star to someone without real accounts or API keys:
+
+```bash
+cd backend
+python -m clipstar.demo                                       # adds a "Maya Money (demo)" workspace
+python -m clipstar.demo --email you@example.com --password '…'  # also creates the owner on a fresh install
+```
+
+It generates a short podcast episode with its own captions file, so no speech model is needed. It runs that episode through the real pipeline, then adds 9 practice accounts, two weeks of simulated posts, stats and comments, a batch waiting for approval and a weekly report. It takes about 10 minutes. Use a separate database for it (for example `clipstar_demo`). The practice numbers are made up, and every screen says so. The pitch email, screenshots and click-through guide are in `pitch/`.
+
 ## Upgrading
 
 1. Make a backup.
